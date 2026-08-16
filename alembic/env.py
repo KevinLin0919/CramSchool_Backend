@@ -1,8 +1,8 @@
 from logging.config import fileConfig
 
-from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import DateTime, engine_from_config, pool
 
+from alembic import context
 from app.config import get_settings
 from app.models import Base, UTCDateTime
 
@@ -32,6 +32,20 @@ def render_item(type_, obj, autogen_context):
     return False
 
 
+def compare_type(_ctx, _inspected_col, _metadata_col, inspected_type, metadata_type):
+    """Treat a reflected TIMESTAMP as equal to the UTCDateTime decorator.
+
+    Autogenerate otherwise sees `TIMESTAMP(timezone=True)` in the database and
+    `UTCDateTime()` in the metadata, cannot prove they are the same, and emits
+    a modify_type for every timestamp column on every run. `alembic check`
+    would never go green, and genuine drift would be buried in that noise.
+    SQLite's looser reflection hides this; Postgres does not.
+    """
+    if isinstance(metadata_type, UTCDateTime) and isinstance(inspected_type, DateTime):
+        return False
+    return None
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=config.get_main_option("sqlalchemy.url"),
@@ -40,6 +54,7 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         render_as_batch=True,
         render_item=render_item,
+        compare_type=compare_type,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -59,6 +74,7 @@ def run_migrations_online() -> None:
             # instead, so the same migration runs on both backends.
             render_as_batch=True,
             render_item=render_item,
+            compare_type=compare_type,
         )
         with context.begin_transaction():
             context.run_migrations()

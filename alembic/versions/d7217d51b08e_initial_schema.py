@@ -4,9 +4,9 @@ Revision ID: d7217d51b08e
 Revises: 
 Create Date: 2026-08-16 12:03:44.923381
 """
+import sqlalchemy as sa
+
 from alembic import op
-import sqlalchemy as sa
-import sqlalchemy as sa
 
 revision = 'd7217d51b08e'
 down_revision = None

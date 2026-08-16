@@ -62,6 +62,7 @@ class UTCDateTime(TypeDecorator):
         return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
+
 class Base(DeclarativeBase):
     pass
 
