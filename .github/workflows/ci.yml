@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Lint + tests (SQLite)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv venv .venv
+      - run: uv pip install --python .venv -e ".[dev]"
+      - run: .venv/bin/python -m ruff check app scripts tests
+      - run: .venv/bin/python -m pytest -q
+
+  postgres:
+    name: Tests against Postgres
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: cramschool
+          POSTGRES_USER: cram
+          POSTGRES_PASSWORD: ci
+        options: >-
+          --health-cmd "pg_isready -U cram"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+        ports: ["5432:5432"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv venv .venv
+      - run: uv pip install --python .venv -e ".[dev]"
+
+      # The suite runs on SQLite for speed, but production is Postgres and the
+      # two disagree in exactly the places that matter (timestamp precision,
+      # timezone handling, constraint enforcement). Applying every migration
+      # against the real backend is what catches that drift.
+      - name: Migrations apply cleanly
+        env:
+          DATABASE_URL: postgresql+psycopg://cram:ci@localhost:5432/cramschool
+        run: .venv/bin/python -m alembic upgrade head
+
+      - name: Migrations are reversible
+        env:
+          DATABASE_URL: postgresql+psycopg://cram:ci@localhost:5432/cramschool
+        run: |
+          .venv/bin/python -m alembic downgrade base
+          .venv/bin/python -m alembic upgrade head
+
+      - name: Models match migrations
+        env:
+          DATABASE_URL: postgresql+psycopg://cram:ci@localhost:5432/cramschool
+        run: |
+          # A model edited without a matching revision is the classic way a
+          # deploy dies: it works locally against create_all and fails on the
+          # server. Autogenerate must produce nothing.
+          .venv/bin/python -m alembic check
+
+  image:
+    name: Docker image builds and starts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t cram_api:ci .
+      - name: Container becomes healthy
+        run: |
+          docker network create ci
+          docker run -d --name db --network ci \
+            -e POSTGRES_DB=cramschool -e POSTGRES_USER=cram -e POSTGRES_PASSWORD=ci \
+            postgres:17-alpine
+          for i in $(seq 1 30); do
+            docker exec db pg_isready -U cram && break; sleep 2
+          done
+          docker run -d --name api --network ci \
+            -e DATABASE_URL=postgresql+psycopg://cram:ci@db:5432/cramschool \
+            cram_api:ci
+          for i in $(seq 1 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' api)" = healthy ] && exit 0
+            sleep 2
+          done
+          echo "container never became healthy"; docker logs api; exit 1

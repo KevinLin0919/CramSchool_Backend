@@ -1,0 +1,53 @@
+# 補習班主機上的部署。
+#
+# API 只綁在 127.0.0.1 —— 不是 0.0.0.0。這代表補習班 WiFi 上的其他裝置
+# 連不到它，唯一的入口是主機上的 Tailscale（見 README「上線」）。少一個
+# 對外埠口，就少一個要顧的東西；而且 Tailscale 會發正式的 Let's Encrypt
+# 憑證，iOS 端因此可以拿掉 ATS 例外。
+#
+# 資料庫完全不對外，只在 compose 內部網路上。
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: cram_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cramschool}
+      POSTGRES_USER: ${POSTGRES_USER:-cram}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?請在 .env 設定 POSTGRES_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cram} -d ${POSTGRES_DB:-cramschool}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [cram_net]
+
+  api:
+    build: .
+    image: cram_api
+    container_name: cram_api
+    restart: unless-stopped
+    ports:
+      # 只有 loopback。`tailscale serve` 從主機這一側接上來。
+      - "127.0.0.1:8085:8085"
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cram}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-cramschool}
+      DATA_DIR: /data
+    volumes:
+      - api_data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [cram_net]
+
+networks:
+  cram_net:
+    driver: bridge
+
+volumes:
+  db_data:
+  api_data:

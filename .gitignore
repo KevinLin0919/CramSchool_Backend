@@ -1,0 +1,19 @@
+# 執行時資料
+data/
+backups/
+*.db
+*.db-wal
+*.db-shm
+
+# 機密
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
