@@ -32,8 +32,14 @@ services:
     container_name: cram_api
     restart: unless-stopped
     ports:
-      # 只有 loopback。`tailscale serve` 從主機這一側接上來。
-      - "127.0.0.1:8085:8085"
+      # 綁定位址刻意可設定，且預設是 loopback。
+      #
+      #   127.0.0.1     只有本機（搭配 `tailscale serve` 用）
+      #   100.x.x.x     這台的 tailnet 位址 —— 只有 tailnet 內的裝置連得到
+      #   192.168.x.x   補習班內網 —— 同一個 WiFi 上的老師直接連
+      #
+      # 不要填 0.0.0.0：那會同時開放給所有介面，包含你沒想到的那些。
+      - "${API_BIND:-127.0.0.1}:8085:8085"
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cram}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-cramschool}
       DATA_DIR: /data
