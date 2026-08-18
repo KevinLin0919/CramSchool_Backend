@@ -57,26 +57,36 @@ docker compose exec api cramctl teachers invite 1
 Migration 在容器啟動時自動套用。跑不過就不啟動——不會讓服務對著看不懂的
 schema 提供服務。
 
-### 上線：Tailscale
+### 綁在哪個介面
 
-主機上（不是容器裡）跑一次：
+`API_BIND` 決定 API 回應哪個網路介面，預設 `127.0.0.1`——安全的選擇是
+什麼都不做就會得到的那個。
+
+| 值 | 誰連得到 | 適用 |
+|---|---|---|
+| `127.0.0.1` | 只有本機 | 搭配 `tailscale serve` |
+| `100.x.x.x` | tailnet 內的裝置 | 老師裝 Tailscale |
+| `192.168.x.x` | 補習班 WiFi | **老師只在補習班批改** |
+
+⚠️ 不要填 `0.0.0.0`——那會同時開放所有介面，包含你沒想到的那些。
+
+### 選配：Tailscale Serve（好記的網址 + 合法憑證）
 
 ```bash
-tailscale serve --bg 8085
-tailscale serve status        # 確認 https://<主機名>.<tailnet>.ts.net 已生效
+tailscale serve --bg 8085     # → https://<主機名>.<tailnet>.ts.net
 ```
 
-Tailscale 會用 DNS-01 向 Let's Encrypt 申請**正式憑證**並自動續期。
-所以：
+Tailscale 用 DNS-01 申請 Let's Encrypt **正式憑證**並自動續期，
+所以 iOS 端可以拿掉 `NSAllowsArbitraryLoads`——App Store 審核會追問那一條。
 
-- 不用買網域，不用設 DNS，不用開 port forwarding
-- 主機 IP 換了也不會斷（MagicDNS 名稱固定）
-- **iOS 端可以拿掉 `NSAllowsArbitraryLoads`** —— 憑證是真的
+⚠️ **Serve 只在 tailnet 內有效，不會讓服務對公開網路開放。** 老師仍需裝
+Tailscale。要對外開放是另一個功能（Funnel），那會讓 API 上公開網路，
+屆時 token 認證就是唯一防線。
 
-API 容器只綁 `127.0.0.1`，補習班 WiFi 上的其他裝置直接連不到；
-唯一入口是 tailnet。
+需要在 tailnet 管理端啟用兩個開關（Owner/Admin 權限）：
+**HTTPS Certificates**（Admin → DNS）與 **Serve**。
 
-> ⚠️ 憑證透明度日誌會**公開**主機名與 tailnet 名稱。
+> 憑證透明度日誌會**公開**主機名與 tailnet 名稱。
 > 不要把機器取名成 `補習班-學生資料`。
 
 ### 老師的裝置怎麼連
