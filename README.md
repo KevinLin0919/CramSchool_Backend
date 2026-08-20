@@ -131,7 +131,10 @@ docker compose exec api python -m scripts.import_legacy \
 ```bash
 docker compose exec -T db pg_dump -U cram cramschool | gzip > backups/db-$(date +%F).sql.gz
 
-docker run --rm -v cramschool_api_api_data:/data -v "$PWD/backups:/b" \
+# volume 名稱由 compose 從「目錄名」推導，不是 repo 名 —— 先問出來再用，
+# 免得目錄改名之後備份到一個不存在的 volume 而毫無錯誤訊息。
+VOL=$(docker volume ls --format '{{.Name}}' | grep api_data$)
+docker run --rm -v "$VOL":/data -v "$PWD/backups:/b" \
     alpine tar czf /b/blobs-$(date +%F).tar.gz -C /data blobs
 ```
 

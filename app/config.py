@@ -31,7 +31,49 @@ class Settings(BaseSettings):
     # teachers table is empty. Leave unset in production and use `cramctl`.
     bootstrap_admin_email: str | None = None
 
+    # ── Microsoft Entra sign-in ─────────────────────────────────────────
+    # Both come from the school's app registration. Empty means the endpoint
+    # reports itself unconfigured rather than half-working.
+    microsoft_tenant_id: str = ""
+    microsoft_client_id: str = ""
+
+    # Whether anyone in the tenant may sign in, or only accounts already
+    # present as teachers.
+    #
+    # Defaults to False on purpose. A directory holds more than teachers —
+    # reception, admin accounts, the owner's personal login — and this
+    # service stores every answer key in the school. Being in the address
+    # book is not a reason to be handed those. Turning it on is a decision
+    # someone should make deliberately, so it is a setting rather than the
+    # default.
+    microsoft_auto_provision: bool = False
+
+    # How long a device token issued through Microsoft lasts.
+    #
+    # Without an expiry, disabling someone's Microsoft account does not
+    # revoke the token already on their iPad — the whole central-offboarding
+    # argument for using Entra at all would be false. Thirty days bounds how
+    # long a departed account keeps working while leaving daily use offline.
+    microsoft_token_days: int = 30
+
+    # Signing keys are cached; Microsoft rotates them, so the cache has to
+    # expire and has to tolerate a key it has never seen.
+    jwks_cache_seconds: int = 12 * 60 * 60
+
     cors_origins: tuple[str, ...] = ()
+
+    @property
+    def microsoft_configured(self) -> bool:
+        return bool(self.microsoft_tenant_id and self.microsoft_client_id)
+
+    @property
+    def microsoft_issuer(self) -> str:
+        return f"https://login.microsoftonline.com/{self.microsoft_tenant_id}/v2.0"
+
+    @property
+    def microsoft_jwks_url(self) -> str:
+        return (f"https://login.microsoftonline.com/{self.microsoft_tenant_id}"
+                "/discovery/v2.0/keys")
 
     @property
     def derivatives(self) -> Path:

@@ -1,12 +1,14 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..auth_microsoft import MicrosoftAuthError, NotEnrolled, TokenVerifier
+from ..config import Settings, get_settings
 from ..db import get_db
 from ..models import ApiToken, InviteCode, Teacher
-from ..schemas import TeacherOut, TokenRequest, TokenResponse
+from ..schemas import MicrosoftTokenRequest, TeacherOut, TokenRequest, TokenResponse
 from ..security import current_teacher, generate_token, hash_token
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -54,6 +56,77 @@ def redeem_invite(payload: TokenRequest, db: Session = Depends(get_db)) -> Token
         role=teacher.role,
         expires_at=None,
     )
+
+
+@router.post("/microsoft", response_model=TokenResponse,
+             summary="以學校的 Microsoft 帳號換取裝置 token")
+def sign_in_with_microsoft(payload: MicrosoftTokenRequest,
+                           db: Session = Depends(get_db),
+                           settings: Settings = Depends(get_settings)) -> TokenResponse:
+    """Microsoft replaces the invite code, and nothing else.
+
+    What comes back is the same device token the invite-code path issues, so
+    everything downstream — the Keychain, the bearer header, per-device
+    revocation — is untouched by which door someone came through.
+
+    Unlike that path, these tokens expire. A device token that outlives the
+    account it was issued against would make the central-offboarding argument
+    for using Entra at all a false one: disabling someone in the directory has
+    to eventually stop the iPad in their bag.
+    """
+    verifier = TokenVerifier(settings)
+    try:
+        identity = verifier.verify(payload.id_token)
+    except MicrosoftAuthError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    teacher = db.execute(
+        select(Teacher).where(Teacher.microsoft_oid == identity.oid)
+    ).scalar_one_or_none()
+
+    if teacher is None and identity.email:
+        # First sign-in for someone an admin already created by email. Claim
+        # the row rather than making a second one for the same person.
+        teacher = db.execute(
+            select(Teacher).where(Teacher.email == identity.email)
+        ).scalar_one_or_none()
+        if teacher is not None:
+            teacher.microsoft_oid = identity.oid
+
+    if teacher is None:
+        if not settings.microsoft_auto_provision:
+            # Being in the directory is not the same as being a teacher, and
+            # this service stores every answer key in the school.
+            raise HTTPException(status_code=NotEnrolled.status_code,
+                                detail=NotEnrolled.detail)
+        teacher = Teacher(name=identity.name,
+                          email=identity.email or None,
+                          microsoft_oid=identity.oid)
+        db.add(teacher)
+        db.flush()
+
+    if not teacher.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="帳號已停用")
+
+    # Directory attributes are the source of truth for these; someone who
+    # changes their name should not stay under the old one forever.
+    teacher.name = identity.name or teacher.name
+    if identity.email:
+        teacher.email = identity.email
+
+    raw = generate_token()
+    expires = datetime.now(UTC) + timedelta(days=settings.microsoft_token_days)
+    db.add(ApiToken(teacher_id=teacher.id,
+                    token_hash=hash_token(raw),
+                    device_name=payload.device_name,
+                    expires_at=expires))
+    db.commit()
+
+    return TokenResponse(token=raw,
+                         teacher_id=teacher.id,
+                         teacher_name=teacher.name,
+                         role=teacher.role,
+                         expires_at=expires)
 
 
 @router.get("/me", response_model=TeacherOut, summary="確認目前 token 對應的帳號")

@@ -15,6 +15,10 @@ dependencies = [
     "python-multipart>=0.0.20",
     "pillow>=11.0",
     "typer>=0.15",
+    # RS256 verification is not something to hand-roll — getting `alg`
+    # handling wrong is the single most common way OIDC integrations become
+    # forgeable.
+    "pyjwt[crypto]>=2.10",
 ]
 
 [project.optional-dependencies]
@@ -23,6 +27,7 @@ dev = [
     "pytest-asyncio>=0.25",
     "httpx>=0.28",
     "ruff>=0.8",
+    "cryptography>=44.0",
 ]
 
 [project.scripts]

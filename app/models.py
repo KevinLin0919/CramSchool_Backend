@@ -96,12 +96,22 @@ class Teacher(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), unique=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="teacher")
+
+    # Entra's stable object id for this person. Identity is keyed on this
+    # rather than on the email address, because addresses change — someone
+    # marries, an account is renamed — and a teacher whose key changed would
+    # come back as a new person with none of their grading history.
+    microsoft_oid: Mapped[str | None] = mapped_column(String(64))
+
     created_at: Mapped[datetime] = _now()
     disabled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
     tokens: Mapped[list[ApiToken]] = relationship(back_populates="teacher")
 
-    __table_args__ = (CheckConstraint("role IN ('teacher','admin')", name="ck_teacher_role"),)
+    __table_args__ = (
+        CheckConstraint("role IN ('teacher','admin')", name="ck_teacher_role"),
+        UniqueConstraint("microsoft_oid", name="uq_teacher_microsoft_oid"),
+    )
 
     @property
     def is_active(self) -> bool:

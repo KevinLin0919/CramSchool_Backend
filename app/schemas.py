@@ -35,6 +35,18 @@ class TokenRequest(BaseModel):
     device_name: str | None = Field(default=None, max_length=120)
 
 
+class MicrosoftTokenRequest(BaseModel):
+    """The ID token from the tenant, straight from the sign-in flow.
+
+    No access token and no authorization code: this service only needs to know
+    *who* signed in, and asking for anything that could act on their behalf
+    would be collecting a capability it has no use for.
+    """
+
+    id_token: str = Field(min_length=32, max_length=8192)
+    device_name: str | None = Field(default=None, max_length=120)
+
+
 class TokenResponse(BaseModel):
     token: str
     teacher_id: int
