@@ -9,7 +9,7 @@ from ..config import Settings, get_settings
 from ..db import get_db
 from ..models import ApiToken, InviteCode, Teacher
 from ..schemas import MicrosoftTokenRequest, TeacherOut, TokenRequest, TokenResponse
-from ..security import current_teacher, generate_token, hash_token
+from ..security import current_teacher, current_token, generate_token, hash_token
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -134,16 +134,41 @@ def whoami(teacher: Teacher = Depends(current_teacher)) -> Teacher:
     return teacher
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, summary="撤銷目前裝置的 token")
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT,
+             summary="撤銷目前這台裝置的 token")
 def logout(
+    db: Session = Depends(get_db),
+    token: ApiToken = Depends(current_token),
+) -> None:
+    """Signs this device out, and only this device.
+
+    This used to revoke every token on the account, justified by the lost-iPad
+    case — the one token you most need dead is the one you cannot present. That
+    case is real but it belongs to the admin side, where `cramctl tokens revoke`
+    already handles it: the person who lost the device is, by definition, not
+    holding it.
+
+    What the app actually calls this for is ordinary: signing in as the wrong
+    account, or handing a shared iPad to the next teacher. Teachers carry more
+    than one device, so account-wide revocation here would log them out of a
+    phone they never touched. `/logout/all` keeps that behaviour for when it is
+    genuinely wanted.
+    """
+    if token.revoked_at is None:
+        token.revoked_at = datetime.now(UTC)
+        db.commit()
+
+
+@router.post("/logout/all", status_code=status.HTTP_204_NO_CONTENT,
+             summary="撤銷這個帳號的所有裝置")
+def logout_all(
     db: Session = Depends(get_db),
     teacher: Teacher = Depends(current_teacher),
 ) -> None:
-    """Revokes every token for this teacher's account.
+    """Every device on the account, for when one of them is gone.
 
-    Coarser than revoking just the calling device, and that is the intent: the
-    reason a teacher reaches for this is a lost iPad, when the token they most
-    need dead is the one they cannot present.
+    Destructive enough to deserve its own name rather than being what happens
+    when someone taps 登出.
     """
     now = datetime.now(UTC)
     for token in teacher.tokens:

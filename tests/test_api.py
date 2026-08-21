@@ -2,7 +2,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from app.db import SessionLocal
-from app.models import ApiToken
+from app.models import ApiToken, InviteCode
+from app.security import generate_token, hash_token
 
 
 def make_template(client, auth, image, *, name="高一數學・段考一", boxes=2):
@@ -81,6 +82,50 @@ def test_expired_token_stops_working(client, auth):
             token.expires_at = datetime.now(UTC) - timedelta(seconds=1)
         db.commit()
     assert client.get("/api/v1/auth/me", headers=auth).status_code == 401
+
+
+def _second_device(client, headers) -> dict[str, str]:
+    """Another token for the SAME teacher — the iPad beside the phone."""
+    teacher_id = client.get("/api/v1/auth/me", headers=headers).json()["id"]
+    with SessionLocal() as db:
+        code = generate_token()
+        db.add(InviteCode(code_hash=hash_token(code), teacher_id=teacher_id))
+        db.commit()
+    response = client.post("/api/v1/auth/token", json={"invite_code": code})
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['token']}"}
+
+
+def test_logout_signs_out_only_the_device_that_called_it(client, auth):
+    """Signing out of a shared iPad must not log the same teacher's phone out.
+
+    This endpoint used to revoke the whole account, which made 登出 an outage
+    for every other device the teacher owned.
+    """
+    other = _second_device(client, auth)
+
+    assert client.post("/api/v1/auth/logout", headers=auth).status_code == 204
+
+    assert client.get("/api/v1/auth/me", headers=auth).status_code == 401
+    assert client.get("/api/v1/auth/me", headers=other).status_code == 200
+
+
+def test_logout_all_signs_out_every_device(client, auth):
+    other = _second_device(client, auth)
+
+    assert client.post("/api/v1/auth/logout/all", headers=auth).status_code == 204
+
+    assert client.get("/api/v1/auth/me", headers=auth).status_code == 401
+    assert client.get("/api/v1/auth/me", headers=other).status_code == 401
+
+
+def test_logging_out_twice_is_not_an_error(client, auth):
+    """The app clears its own credential either way, so a retry after a flaky
+    first attempt must not surface as a failure."""
+    assert client.post("/api/v1/auth/logout", headers=auth).status_code == 204
+    # The second call cannot authenticate at all — the token it would present
+    # is the one it just revoked — and 401 is the honest answer to that.
+    assert client.post("/api/v1/auth/logout", headers=auth).status_code == 401
 
 
 def test_raw_token_is_never_stored(client, auth):

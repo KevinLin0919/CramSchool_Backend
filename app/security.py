@@ -52,10 +52,17 @@ def _extract_bearer(authorization: str | None) -> str:
     return token.strip()
 
 
-def current_teacher(
+def current_token(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
-) -> Teacher:
+) -> ApiToken:
+    """The credential the caller presented, not just who it belongs to.
+
+    Split out from `current_teacher` because signing out has to revoke *this*
+    device and nothing else. Teachers carry an iPad and a phone, and killing
+    the phone because the iPad changed hands is not signing out — it is an
+    outage with a friendly label on it.
+    """
     token = _extract_bearer(authorization)
     now = datetime.now(UTC)
 
@@ -68,15 +75,18 @@ def current_teacher(
     if row.expires_at is not None and row.expires_at < now:
         raise _unauthorized("token 已過期")
 
-    teacher = row.teacher
-    if teacher is None or not teacher.is_active:
+    if row.teacher is None or not row.teacher.is_active:
         raise _unauthorized("帳號已停用")
 
     # Cheap enough to write every request, and it is what makes an unused
     # device visible in `cramctl tokens` before it becomes a stale credential.
     row.last_used_at = now
     db.commit()
-    return teacher
+    return row
+
+
+def current_teacher(token: ApiToken = Depends(current_token)) -> Teacher:
+    return token.teacher
 
 
 def require_admin(teacher: Teacher = Depends(current_teacher)) -> Teacher:
