@@ -281,8 +281,19 @@ def master_image(
     if not path.is_file():
         raise HTTPException(status_code=410, detail="影像檔案已遺失")
 
+    # Deliberately not `immutable`, and deliberately unlike `/images/{id}`.
+    #
+    # That URL is content-addressed — an image row's sha256 never changes — so
+    # promising its bytes will never move is true. This one resolves through
+    # `template_pages`, which can be repointed at a different image, so the
+    # same URL serves different bytes the moment a template's page is
+    # replaced. It used to claim a year of immutability anyway, and every
+    # cache in the path believed it: a client that had fetched a master before
+    # the template was rebuilt kept serving the old sheet from its own store
+    # without ever asking us again. The ETag stays, so a conditional request
+    # can still be answered cheaply once one is made.
     return FileResponse(
         path,
         media_type=media_type,
-        headers={"Cache-Control": "public, max-age=31536000, immutable", "ETag": etag},
+        headers={"Cache-Control": "private, no-cache", "ETag": etag},
     )
