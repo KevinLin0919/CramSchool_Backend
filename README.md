@@ -31,7 +31,7 @@
 
 ```bash
 uv venv .venv && uv pip install --python .venv -e ".[dev]"
-.venv/bin/python -m pytest              # 53 項
+.venv/bin/python -m pytest              # 76 項
 .venv/bin/uvicorn app.main:app --reload --port 8085
 ```
 
@@ -41,6 +41,11 @@ uv venv .venv && uv pip install --python .venv -e ".[dev]"
 ```bash
 .venv/bin/cramctl teachers add "林老師" --admin
 .venv/bin/cramctl teachers invite 1     # 邀請碼只顯示一次
+.venv/bin/cramctl teachers list
+.venv/bin/cramctl teachers disable 2
+
+.venv/bin/cramctl tokens list           # 哪些裝置還連得進來
+.venv/bin/cramctl tokens revoke 3       # iPad 掉了，現在就停掉
 ```
 
 ---
@@ -97,6 +102,54 @@ Tailscale。要對外開放是另一個功能（Funnel），那會讓 API 上公
 多台裝置掛同一個 Tailscale 帳號是可以的，因為
 **Tailscale 不是身分層**——本服務自己有 per-teacher token，
 每台裝置一組、可個別撤銷，所以 App 這邊照樣分得出誰是誰。
+
+---
+
+## 兩種登入
+
+換到的東西是一樣的：**一組這台裝置的 token**。Microsoft 取代的只有「證明你是誰」
+那一步，token 層、Keychain、per-device 撤銷，走哪扇門進來都不變。
+
+| | 邀請碼 | 學校的 Microsoft 帳號 |
+|---|---|---|
+| 端點 | `POST /api/v1/auth/token` | `POST /api/v1/auth/microsoft` |
+| 誰核發 | 管理員跑 `cramctl teachers invite` | Entra 租戶 |
+| 一次性 | 是，`redeemed_at` 填上就作廢 | 否 |
+| token 到期 | 不會 | **30 天**（`MICROSOFT_TOKEN_DAYS`） |
+| 目前狀態 | 可用 | **後端可用，iOS 端還沒接** |
+
+Microsoft 的 token 會過期是刻意的。沒有到期時間的話，在 Entra 停用某人的帳號
+並不會讓他 iPad 上那組 token 失效——那用 Entra 做集中離職管理的理由就是假的。
+
+### 要讓 Microsoft 那條能動，需要什麼
+
+```bash
+# .env
+MICROSOFT_TENANT_ID=<補習班 Entra 租戶的 id>
+MICROSOFT_CLIENT_ID=<在該租戶建立的 app registration>
+MICROSOFT_AUTO_PROVISION=false
+```
+
+兩個都填了服務才會認為這條路已設定；缺一個就整條回報未設定，而不是半動半不動。
+
+`MICROSOFT_AUTO_PROVISION` **預設 false**，要開是一個該有人明確決定的選擇。
+目錄裡不只有老師——櫃檯、行政帳號、老闆自己的登入都在裡面，而這個服務存的是
+補習班所有考卷的標準答案。**在通訊錄裡不是拿到那些東西的理由。**
+
+伺服器端收到 ID token 後會驗簽章、`iss`、`aud` 與 `tid`，簽章金鑰從 Microsoft
+的 JWKS 取得並快取（他們會輪替，所以快取要會過期，也要容忍沒見過的金鑰）。
+認人用的是 `microsoft_oid` 而不是 email——**email 可以改，oid 不會**。
+
+### 登出 = 撤銷這台裝置
+
+| 端點 | 範圍 |
+|---|---|
+| `POST /api/v1/auth/logout` | **只有目前這台**。App 裡按登出走這條 |
+| `POST /api/v1/auth/logout/all` | 這個帳號的所有裝置 |
+
+登出曾經是撤銷整個帳號，理由是 iPad 掉了。那個情境是真的，但它屬於管理端——
+`cramctl tokens revoke` 已經處理了，而且弄丟裝置的人**依定義就是沒拿著它**。
+一位老師手上同時有 iPad 和手機是常態，在其中一台登出不該把另一台踢掉。
 
 ---
 
@@ -160,6 +213,48 @@ SQLite 的 `CURRENT_TIMESTAMP` 只有**秒**的精度，同一秒內的兩次修
 
 `UTCDateTime` 處理另一半：SQLite 沒有帶時區的型別，會默默把 offset 丟掉。
 統一在寫入時正規化、讀出時補回 UTC，兩個後端行為才會一致。
+
+### 一份考卷是一疊頁
+
+`exam_templates` → `template_pages`（每面一列，`page_index` 從 0 起算）
+→ `answer_boxes`（每格一列，座標是**該頁母卷的 0..1 分數**）。
+
+母卷影像掛在頁上而不是模板上，所以正反面共用同一張紙的情況會共用同一個
+`image_id`——現在的兩份測試模板就是這樣，單面那份的第 0 面與雙面那份的第 1 面
+指向同一張影像。
+
+`GET /templates/{id}/master?page=N&w=W` 取某一面。**`w` 只接受
+640 / 1024 / 1600 / 2048**——開放的 `?w=` 等於讓任何人用衍生圖把磁碟塞爆。
+
+### 兩個唯一鍵不一致，這是多頁考卷所有限制的來源
+
+```
+answer_boxes     UNIQUE (page_id,    question_no)   ← 每「頁」唯一
+graded_answers   UNIQUE (session_id, question_no)   ← 每「份」唯一
+```
+
+所以一份正反面都印「1、2、3」的考卷，**存得進模板，卻批不了**。而且更糟的是，
+客戶端把各頁的標準答案攤平後依題號排序，每一格都會配到錯的標準答案——
+一個看起來完全正確的錯誤成績。
+
+iOS 端的 `TemplateStore.resolve` 直接拒絕這種模板並說明原因。拒絕是唯一誠實的
+選項：一個錯得很像對的成績，比一個明白壞掉的畫面糟得多。
+
+實務上就是後面那面接著編號（正面 1–3，背面 4–6），代價是 App 顯示「第 4 題」
+而考卷上印的是「七、1」。`answer_boxes.label`（varchar 32，預設「答案區」）
+就是為這件事準備的欄位，已經在 API 的回傳裡，只是還沒有人填有意義的值，
+iOS 端也還沒解碼它。
+
+### `answer_type` 決定裝置上跑哪個辨識器
+
+| 值 | 裝置端 |
+|---|---|
+| `digit` | MNIST CNN |
+| `mark` | 圈叉的拓樸判斷（數洞） |
+| `chinese` / `text` | 目前不辨識 |
+
+標錯的後果不是辨識失敗，是**用錯的模型去讀**——把注音格標成 `digit`，
+數字模型會很有信心地回報一個數字。
 
 ### 冪等上傳
 
