@@ -15,7 +15,11 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-AnswerType = Literal["digit", "mark", "chinese", "text"]
+# `choice` is `digit` with an arity: exactly one character, because the cell is
+# a multiple-choice answer and cannot hold more. It is a separate value rather
+# than a flag because it is the template that knows this, and the device should
+# be told rather than left to infer it from the answer key's own shape.
+AnswerType = Literal["digit", "mark", "chinese", "text", "choice"]
 Verdict = Literal["correct", "wrong", "unsure"]
 
 # 0..1 with a little slack: a labeller can legitimately drag a box a hair past

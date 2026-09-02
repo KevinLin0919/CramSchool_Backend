@@ -189,6 +189,49 @@ def test_create_and_read_template(client, auth, uploaded_image):
     assert [b["question_no"] for b in fetched.json()["pages"][0]["boxes"]] == [1, 2, 3]
 
 
+def _template_with_answer_type(client, auth, image, answer_type):
+    return client.post(
+        "/api/v1/templates",
+        json={
+            "exam_name": "型別測試",
+            "grade": "小六",
+            "subject": "國語",
+            "pages": [
+                {
+                    "page_index": 0,
+                    "image_id": image["id"],
+                    "boxes": [
+                        {
+                            "question_no": 1,
+                            "x": 0.8, "y": 0.1, "w": 0.1, "h": 0.05,
+                            "answer": "4",
+                            "answer_type": answer_type,
+                        }
+                    ],
+                }
+            ],
+        },
+        headers=auth,
+    )
+
+
+def test_choice_is_an_accepted_answer_type(client, auth, uploaded_image):
+    """A multiple-choice cell holds exactly one character, and the template is
+    the only thing that knows that — the answer key's own shape does not say
+    it, since a one-digit answer can equally belong to a fill-in blank."""
+    image = uploaded_image()
+    created = _template_with_answer_type(client, auth, image, "choice")
+    assert created.status_code == 201, created.text
+
+    fetched = client.get(f"/api/v1/templates/{created.json()['id']}", headers=auth)
+    assert fetched.json()["pages"][0]["boxes"][0]["answer_type"] == "choice"
+
+
+def test_unknown_answer_type_is_rejected(client, auth, uploaded_image):
+    image = uploaded_image()
+    assert _template_with_answer_type(client, auth, image, "bogus").status_code == 422
+
+
 def test_duplicate_question_numbers_are_rejected(client, auth, uploaded_image):
     image = uploaded_image()
     response = client.post(

@@ -77,3 +77,12 @@ def test_rejects_degenerate_image_dimensions():
 )
 def test_answer_type_inference(answer, expected):
     assert guess_answer_type(answer) == expected
+
+
+def test_inference_never_guesses_choice():
+    """`choice` says the cell is a multiple-choice answer, which is a fact
+    about the question, not about the answer written in it. A one-digit answer
+    belongs equally to a fill-in blank, and marking that `choice` would throw
+    away a second digit the student legitimately wrote — so this function,
+    which exists to guess, is not allowed to guess it."""
+    assert all(guess_answer_type(a) != "choice" for a in ["1", "4", "12", "0", ""])

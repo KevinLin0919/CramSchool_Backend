@@ -283,7 +283,8 @@ class AnswerBox(Base):
     __table_args__ = (
         UniqueConstraint("page_id", "question_no", name="uq_box_question_no"),
         CheckConstraint(
-            "answer_type IN ('digit','mark','chinese','text')", name="ck_box_answer_type"
+            "answer_type IN ('digit','mark','chinese','text','choice')",
+            name="ck_box_answer_type",
         ),
     )
 
