@@ -13,7 +13,6 @@ from pathlib import Path
 _TMP = Path(tempfile.mkdtemp(prefix="cramschool-tests-"))
 os.environ["DATABASE_URL"] = f"sqlite:///{_TMP / 'test.db'}"
 os.environ["DATA_DIR"] = str(_TMP / "data")
-os.environ["COMPAT_REQUIRE_AUTH"] = "true"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
