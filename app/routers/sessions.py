@@ -77,6 +77,15 @@ def upsert_session(
     if session is None:
         session = GradingSession(client_uuid=client_uuid)
         db.add(session)
+    elif session.teacher_id is not None and session.teacher_id != teacher.id:
+        # Someone else's paper. The UUID is minted on a device and never
+        # travels, so arriving here with another teacher's means either a
+        # device changed hands mid-queue or someone guessed — and this used to
+        # overwrite the row and reassign it to whoever asked. Harmless while
+        # every teacher could read every record; the moment reads are scoped to
+        # their owner, an unchecked write is the way around that scoping.
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="這份批改紀錄屬於其他老師")
 
     session.template_id = payload.template_id
     session.student_id = payload.student_id
@@ -132,15 +141,19 @@ def upsert_session(
 @router.get("", response_model=list[GradingSessionSummary], summary="查詢批改紀錄")
 def list_sessions(
     db: Session = Depends(get_db),
-    _: Teacher = Depends(current_teacher),
+    teacher: Teacher = Depends(current_teacher),
     student_id: int | None = None,
     template_id: int | None = None,
     since: datetime | None = None,
     limit: int = Query(default=200, ge=1, le=1000),
 ) -> list[GradingSessionSummary]:
+    # A teacher's own work only. Templates and answer keys are shared across
+    # the school; who graded which child's paper is not, and a device that
+    # signs in as someone else has to come back to their records rather than
+    # to the last person's.
     query = select(GradingSession, ExamTemplate.exam_name).join(
         ExamTemplate, ExamTemplate.id == GradingSession.template_id
-    )
+    ).where(GradingSession.teacher_id == teacher.id)
     if student_id is not None:
         query = query.where(GradingSession.student_id == student_id)
     if template_id is not None:
@@ -168,13 +181,16 @@ def list_sessions(
 def get_session(
     client_uuid: uuid.UUID,
     db: Session = Depends(get_db),
-    _: Teacher = Depends(current_teacher),
+    teacher: Teacher = Depends(current_teacher),
 ) -> GradingSessionOut:
     session = db.execute(
         select(GradingSession)
         .options(selectinload(GradingSession.answers))
-        .where(GradingSession.client_uuid == client_uuid)
+        .where(GradingSession.client_uuid == client_uuid,
+               GradingSession.teacher_id == teacher.id)
     ).scalar_one_or_none()
+    # 404 rather than 403, deliberately: a distinct "exists but not yours"
+    # would let anyone holding a token confirm which UUIDs are real.
     if session is None:
         raise HTTPException(status_code=404, detail="找不到批改紀錄")
     template = db.get(ExamTemplate, session.template_id)
@@ -185,10 +201,11 @@ def get_session(
 def delete_session(
     client_uuid: uuid.UUID,
     db: Session = Depends(get_db),
-    _: Teacher = Depends(current_teacher),
+    teacher: Teacher = Depends(current_teacher),
 ) -> Response:
     session = db.execute(
-        select(GradingSession).where(GradingSession.client_uuid == client_uuid)
+        select(GradingSession).where(GradingSession.client_uuid == client_uuid,
+                                     GradingSession.teacher_id == teacher.id)
     ).scalar_one_or_none()
     if session is None:
         raise HTTPException(status_code=404, detail="找不到批改紀錄")
@@ -213,6 +230,13 @@ def export_corrections(
     The recogniser was tuned against six hand-labelled cells; ordinary use for
     a term produces thousands, gathered as a by-product of grading rather than
     as a separate annotation effort.
+
+    Deliberately NOT scoped to the caller, unlike everything else in this file.
+    The reader here is a training pipeline, not a teacher looking up a class:
+    it wants every labelled cell the school has produced, and splitting the set
+    by who happened to grade the paper would leave each slice too small to
+    train on — which is the entire reason the endpoint exists. What it returns
+    is a crop and a character, not who marked whose child.
     """
     query = (
         select(GradedAnswer, GradingSession.scanned_at)

@@ -58,6 +58,16 @@ def auth(client) -> dict[str, str]:
 
 
 @pytest.fixture
+def other_auth(client) -> dict[str, str]:
+    """A second teacher at the same school, for anything about isolation.
+
+    Grading records are scoped to whoever produced them, and a scoping rule
+    with only one subject in the suite is a rule nothing can fail against.
+    """
+    return {"Authorization": f"Bearer {_enrol(client, '陳老師', 'teacher')}"}
+
+
+@pytest.fixture
 def make_png():
     """Distinct images per call, so dedup tests are testing dedup."""
 

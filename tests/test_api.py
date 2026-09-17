@@ -382,6 +382,82 @@ def test_reuploading_a_session_updates_instead_of_duplicating(client, auth, uplo
     assert len(client.get("/api/v1/grading-sessions", headers=auth).json()) == 1
 
 
+def test_a_teacher_sees_only_their_own_grading(client, auth, other_auth, uploaded_image):
+    """Templates are shared across a school; who graded whose paper is not."""
+    image = uploaded_image()
+    template_id = make_template(client, auth, image).json()["id"]
+    mine, theirs = str(uuid.uuid4()), str(uuid.uuid4())
+
+    client.put(f"/api/v1/grading-sessions/{mine}",
+               json=session_payload(template_id), headers=auth)
+    client.put(f"/api/v1/grading-sessions/{theirs}",
+               json=session_payload(template_id), headers=other_auth)
+
+    listed = client.get("/api/v1/grading-sessions", headers=auth).json()
+    assert [row["client_uuid"] for row in listed] == [mine]
+
+    # Not "exists but forbidden": telling the difference would let anyone with
+    # a token confirm which UUIDs are real.
+    assert client.get(f"/api/v1/grading-sessions/{theirs}", headers=auth).status_code == 404
+
+
+def test_one_teacher_cannot_overwrite_anothers_grading(client, auth, other_auth, uploaded_image):
+    """The hole that scoping reads would otherwise leave open.
+
+    The upsert used to take the UUID at face value and reassign the row to
+    whoever sent it — so a teacher who could no longer *read* someone else's
+    record could still overwrite it, and become its owner in the process.
+    """
+    image = uploaded_image()
+    template_id = make_template(client, auth, image).json()["id"]
+    client_uuid = str(uuid.uuid4())
+    client.put(f"/api/v1/grading-sessions/{client_uuid}",
+               json=session_payload(template_id), headers=auth)
+
+    intruder = client.put(f"/api/v1/grading-sessions/{client_uuid}",
+                          json=session_payload(template_id), headers=other_auth)
+    assert intruder.status_code == 403
+
+    # And the original owner still has it, unchanged.
+    assert client.get(f"/api/v1/grading-sessions/{client_uuid}",
+                      headers=auth).status_code == 200
+
+
+def test_one_teacher_cannot_delete_anothers_grading(client, auth, other_auth, uploaded_image):
+    image = uploaded_image()
+    template_id = make_template(client, auth, image).json()["id"]
+    client_uuid = str(uuid.uuid4())
+    client.put(f"/api/v1/grading-sessions/{client_uuid}",
+               json=session_payload(template_id), headers=auth)
+
+    assert client.delete(f"/api/v1/grading-sessions/{client_uuid}",
+                         headers=other_auth).status_code == 404
+    assert client.get(f"/api/v1/grading-sessions/{client_uuid}",
+                      headers=auth).status_code == 200
+
+
+def test_training_export_is_not_scoped_to_one_teacher(client, auth, other_auth, uploaded_image):
+    """The one endpoint that deliberately crosses the boundary.
+
+    Its reader is a training pipeline, not a teacher looking up a class. Split
+    the labelled cells by who happened to grade the paper and each slice is too
+    small to train on, which is the whole reason it exists.
+    """
+    image = uploaded_image()
+    template_id = make_template(client, auth, image).json()["id"]
+    # A correction only becomes training data once it has a crop attached —
+    # the label alone teaches nothing without the ink it labels.
+    cell = uploaded_image(width=64, height=64, colour=(200, 200, 200))
+    for headers in (auth, other_auth):
+        payload = session_payload(template_id)
+        payload["answers"][0]["teacher_value"] = "7"
+        payload["answers"][0]["cell_image_id"] = cell["id"]
+        client.put(f"/api/v1/grading-sessions/{uuid.uuid4()}", json=payload, headers=headers)
+
+    rows = client.get("/api/v1/grading-sessions/exports/corrections", headers=auth).json()
+    assert len(rows) == 2, "a teacher's export should still carry the whole school's labels"
+
+
 def test_score_is_recomputed_not_trusted(client, auth, uploaded_image):
     image = uploaded_image()
     template_id = make_template(client, auth, image).json()["id"]
