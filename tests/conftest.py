@@ -25,6 +25,22 @@ from app.security import generate_token, hash_token  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
+def fresh_rate_limits():
+    """Every test starts with the counters at zero.
+
+    The suite enrols dozens of devices from one address, which is exactly the
+    shape the limiter exists to refuse. Without this the limit is real and the
+    tests are wrong; with it, the limit is still real and gets its own test
+    below rather than being discovered as everybody else's failure.
+    """
+    from app.routers.auth import _auth_limit
+
+    _auth_limit.reset()
+    yield
+    _auth_limit.reset()
+
+
+@pytest.fixture(autouse=True)
 def fresh_database():
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)

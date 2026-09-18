@@ -31,6 +31,22 @@ class Settings(BaseSettings):
     # teachers table is empty. Leave unset in production and use `cramctl`.
     bootstrap_admin_email: str | None = None
 
+    # ── 對外開放端點的速率限制 ──────────────────────────────────────────
+    # Only two endpoints accept a request without a token, and both of them do
+    # real work per call. These numbers are generous by design: redeeming an
+    # invite code happens once in a device's life, and signing in happens once
+    # a month. A teacher will never come near them.
+    auth_rate_limit_per_ip: int = 10
+    auth_rate_limit_overall: int = 60
+    auth_rate_limit_window_seconds: int = 60
+
+    # Whose `X-Forwarded-For` to believe. Empty means nobody's — the peer
+    # address is then the only thing counted, which is correct when this
+    # process is reached directly. Set it to the proxy in front (Tailscale
+    # Funnel terminates on this host, so 127.0.0.1) and only then does the
+    # header become evidence about who is really calling.
+    trusted_proxies: tuple[str, ...] = ()
+
     # ── Microsoft Entra sign-in ─────────────────────────────────────────
     # Both come from the school's app registration. Empty means the endpoint
     # reports itself unconfigured rather than half-working.

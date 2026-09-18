@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -8,13 +8,32 @@ from ..auth_microsoft import MicrosoftAuthError, NotEnrolled, TokenVerifier
 from ..config import Settings, get_settings
 from ..db import get_db
 from ..models import ApiToken, InviteCode, Teacher
+from ..ratelimit import RateLimiter, client_key
 from ..schemas import MicrosoftTokenRequest, TeacherOut, TokenRequest, TokenResponse
 from ..security import current_teacher, current_token, generate_token, hash_token
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
+# The two endpoints below are the only ones in this service that answer a
+# caller who has presented nothing. Everything else is behind a 256-bit token,
+# so this is not guarding a secret — it is bounding how much work a stranger
+# can make this machine do while a teacher is in the middle of a stack.
+#
+# Built once at import, because a limiter rebuilt per request counts nothing.
+_settings = get_settings()
+_auth_limit = RateLimiter(
+    per_key=_settings.auth_rate_limit_per_ip,
+    overall=_settings.auth_rate_limit_overall,
+    window_seconds=_settings.auth_rate_limit_window_seconds,
+)
 
-@router.post("/token", response_model=TokenResponse, summary="以邀請碼換取裝置 token")
+
+def rate_limited(request: Request, settings: Settings = Depends(get_settings)) -> None:
+    _auth_limit.check(client_key(request, settings.trusted_proxies))
+
+
+@router.post("/token", response_model=TokenResponse, summary="以邀請碼換取裝置 token",
+             dependencies=[Depends(rate_limited)])
 def redeem_invite(payload: TokenRequest, db: Session = Depends(get_db)) -> TokenResponse:
     """Enrolment: an admin issues a single-use code, the device swaps it for a token.
 
@@ -59,7 +78,8 @@ def redeem_invite(payload: TokenRequest, db: Session = Depends(get_db)) -> Token
 
 
 @router.post("/microsoft", response_model=TokenResponse,
-             summary="以學校的 Microsoft 帳號換取裝置 token")
+             summary="以學校的 Microsoft 帳號換取裝置 token",
+             dependencies=[Depends(rate_limited)])
 def sign_in_with_microsoft(payload: MicrosoftTokenRequest,
                            db: Session = Depends(get_db),
                            settings: Settings = Depends(get_settings)) -> TokenResponse:

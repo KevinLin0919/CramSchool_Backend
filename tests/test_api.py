@@ -529,3 +529,101 @@ def test_session_against_a_deleted_template_is_rejected(client, auth, uploaded_i
         headers=auth,
     )
     assert response.status_code == 400
+
+
+# ── 對外端點的速率限制 ───────────────────────────────────────────────────────
+
+
+def test_invite_redemption_is_rate_limited(client):
+    """A stranger cannot hammer the one endpoint that answers strangers.
+
+    The codes themselves carry 256 bits, so this is not about guessing one.
+    It is about how much work a caller can make this machine do: every attempt
+    is a database lookup and a hash, on a box in a cram school that is also
+    serving a teacher part-way through a stack of papers.
+    """
+    from app.routers.auth import _auth_limit
+
+    limit = _auth_limit.per_key
+    bad = {"invite_code": "definitely-not-a-real-code", "device_name": "someone else's phone"}
+    for _ in range(limit):
+        # Wrong codes on purpose: being refused for the right reason still
+        # costs the lookup, which is precisely the work being bounded.
+        assert client.post("/api/v1/auth/token", json=bad).status_code == 400
+
+    refused = client.post("/api/v1/auth/token", json=bad)
+    assert refused.status_code == 429
+    # A number, not a shrug: a well-behaved client should be able to wait once
+    # rather than poll until it is let back in.
+    assert int(refused.headers["Retry-After"]) >= 1
+
+
+def test_microsoft_sign_in_shares_the_same_budget(client):
+    """One limit across both public doors, not one each.
+
+    They are the same resource seen from two angles, and a caller refused at
+    one of them would otherwise simply walk to the other.
+    """
+    from app.routers.auth import _auth_limit
+
+    for _ in range(_auth_limit.per_key):
+        client.post("/api/v1/auth/token", json={"invite_code": "definitely-not-a-real-code"})
+
+    blocked = client.post("/api/v1/auth/microsoft", json={"id_token": "nope"})
+    assert blocked.status_code == 429
+
+
+def test_rate_limit_does_not_touch_authenticated_endpoints(client, auth):
+    """Teachers at work are not the traffic this is aimed at.
+
+    Everything behind a token is already gated by something unguessable, and a
+    teacher uploading a stack of forty papers must not start being refused
+    part-way through because the count was shared with the front door.
+    """
+    from app.routers.auth import _auth_limit
+
+    for _ in range(_auth_limit.per_key + 5):
+        client.post("/api/v1/auth/token", json={"invite_code": "definitely-not-a-real-code"})
+
+    assert client.get("/api/v1/auth/me", headers=auth).status_code == 200
+    assert client.get("/api/v1/templates", headers=auth).status_code == 200
+
+
+def test_forwarded_for_is_ignored_without_a_trusted_proxy(client):
+    """A header cannot buy a fresh budget.
+
+    `X-Forwarded-For` is whatever the sender writes in it. Counting it when
+    nothing in front of this process is known to set it would turn the limit
+    into a formality — one line of client code per extra allowance.
+    """
+    for _ in range(_limit(client)):
+        client.post("/api/v1/auth/token",
+                    json={"invite_code": "definitely-not-a-real-code"},
+                    headers={"X-Forwarded-For": "203.0.113.9"})
+
+    spoofed = client.post("/api/v1/auth/token",
+                          json={"invite_code": "definitely-not-a-real-code"},
+                          headers={"X-Forwarded-For": "198.51.100.7"})
+    assert spoofed.status_code == 429
+
+
+def _limit(_client) -> int:
+    from app.routers.auth import _auth_limit
+
+    return _auth_limit.per_key
+
+
+def test_a_malformed_body_still_spends_the_budget(client):
+    """Sending rubbish must not be cheaper than sending a real attempt.
+
+    If the limit were applied after the request body was validated, then the
+    way past it would be to send a body that never validates — free attempts,
+    unlimited, at an endpoint whose whole purpose is to be reachable by
+    strangers. This asserts the order: counted first, parsed second.
+    """
+    from app.routers.auth import _auth_limit
+
+    for _ in range(_auth_limit.per_key):
+        assert client.post("/api/v1/auth/token", json={}).status_code == 422
+
+    assert client.post("/api/v1/auth/token", json={}).status_code == 429
