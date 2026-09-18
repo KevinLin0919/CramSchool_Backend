@@ -51,9 +51,22 @@ services:
       # 沒設定時退回 127.0.0.2 —— 一個不會跟上面那行相撞的 loopback 位址，
       # 意思是「這台沒有要開放內網」，而不是「開放給全部」。
       - "${API_BIND_LAN:-127.0.0.2}:8085:8085"
+      # A third, for `tailscale funnel`, which proxies to loopback and nowhere
+      # else. Off unless asked for: 127.0.0.3 is a loopback address that
+      # collides with neither line above, and means "this machine is not
+      # published to the internet".
+      - "${API_BIND_LOCAL:-127.0.0.3}:8085:8085"
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-cram}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-cramschool}
       DATA_DIR: /data
+      # Compose reads `.env` to substitute into THIS file; it does not hand
+      # those variables to the container. Named here or absent at runtime —
+      # and absent here means every caller arriving through a proxy is
+      # counted as the proxy, which turns a per-caller limit into one shared
+      # bucket for the whole internet.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-[]}
+      AUTH_RATE_LIMIT_PER_IP: ${AUTH_RATE_LIMIT_PER_IP:-10}
+      AUTH_RATE_LIMIT_OVERALL: ${AUTH_RATE_LIMIT_OVERALL:-60}
       # Compose reads `.env` to substitute into THIS file; it does not hand
       # those variables to the container. Anything the app reads has to be
       # named here as well, or it is simply absent at runtime — and the
