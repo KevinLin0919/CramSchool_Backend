@@ -11,7 +11,13 @@ services:
   db:
     image: postgres:17-alpine
     container_name: cram_db
-    restart: unless-stopped
+    # `always`, not `unless-stopped`. The difference only shows up once: a
+    # container stopped by hand stays stopped across a reboot under
+    # `unless-stopped`, and the most likely cause of "it was down all Monday
+    # and nobody told us" is somebody stopping the stack to free memory and
+    # forgetting. Once teachers reach this from outside the building, nobody
+    # is walking past the machine to notice.
+    restart: always
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-cramschool}
       POSTGRES_USER: ${POSTGRES_USER:-cram}
@@ -24,13 +30,18 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     networks: [cram_net]
 
   api:
     build: .
     image: cram_api
     container_name: cram_api
-    restart: unless-stopped
+    restart: always
     ports:
       # 綁定位址刻意可設定，且預設是 loopback。
       #
@@ -76,16 +87,34 @@ services:
       MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
       MICROSOFT_AUTO_PROVISION: ${MICROSOFT_AUTO_PROVISION:-false}
       MICROSOFT_TOKEN_DAYS: ${MICROSOFT_TOKEN_DAYS:-30}
+    # A 247 KiB PNG can decode to two thirds of a gigabyte, and Pillow only
+    # refuses past twice MAX_IMAGE_PIXELS — so the ceiling on one request is
+    # gigabytes, in a single worker. Unlimited, that OOMs the host and takes
+    # Postgres down with it; capped, the API alone is killed and restarted
+    # while the database keeps its data.
+    mem_limit: 1g
     volumes:
       - api_data:/data
     depends_on:
       db:
         condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     networks: [cram_net]
 
 networks:
   cram_net:
     driver: bridge
+    # Pinned, because the gateway address becomes configuration the moment
+    # anything is proxied in front of this: the app sees the bridge gateway
+    # as the peer, and a rate limit keyed on it would silently re-key itself
+    # whenever Docker recreated the network with a different subnet.
+    ipam:
+      config:
+        - subnet: 172.31.240.0/24
 
 volumes:
   db_data:

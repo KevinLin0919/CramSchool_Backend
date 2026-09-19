@@ -50,6 +50,37 @@ uv venv .venv && uv pip install --python .venv -e ".[dev]"
 
 ---
 
+## 備份與監看
+
+```bash
+deploy/backup.sh              # 從「你的」機器拉，不是在伺服器上推
+deploy/healthcheck.sh         # 不通時才出聲
+```
+
+排程放在你自己的機器上：
+
+```cron
+17 3 * * *   /path/to/deploy/backup.sh >> ~/backups/backup.log 2>&1
+*/10 * * * * /path/to/deploy/healthcheck.sh
+```
+
+備份是**拉**的，因為伺服器上的 cron 寫到伺服器自己的硬碟，擋得住誤刪和壞掉的
+migration，擋不住那台筆電摔了、被偷了、或硬碟死了。
+
+兩半都要：資料庫的列用 id 指向影像，少了 blob，每一筆都回 410，還原出來的是
+一個沒有證據的分數。影像用 `rsync` 而不是每天 `tar` —— 儲存是內容定址、只增
+不改的，檔名就是雜湊，所以只會複製新的。`derivatives/` 不備份，那是快取。
+
+**一份沒有還原過的備份不是備份。** 驗證方式：
+
+```bash
+docker run -d --rm --name restore_test -e POSTGRES_PASSWORD=t \
+  -e POSTGRES_USER=cram -e POSTGRES_DB=cramschool postgres:17-alpine
+gunzip -c ~/backups/cramschool/db/cramschool-*.sql.gz \
+  | docker exec -i restore_test psql -U cram -d cramschool
+# 列數要對得上，而且每一筆 images.sha256 都要在 blobs/ 裡找得到檔案
+```
+
 ## 部署
 
 ```bash
