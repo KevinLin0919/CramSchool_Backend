@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -13,6 +14,19 @@ from ..schemas import MicrosoftTokenRequest, TeacherOut, TokenRequest, TokenResp
 from ..security import current_teacher, current_token, generate_token, hash_token
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+
+# One line per device that successfully enrols or signs in.
+#
+# uvicorn's access log already records every request's method, path and
+# status, so failures and 429s are visible there. What it cannot show is WHO
+# — and "which account is this device carrying" is the question actually
+# worth answering later, when a token turns up somewhere it should not be or
+# a teacher says they never signed in on that iPad.
+#
+# Never the token, never the invite code, never the Microsoft ID token. A log
+# that records a credential has turned a rotated file into a second copy of
+# the thing it was protecting.
+log = logging.getLogger("cramschool.auth")
 
 # The two endpoints below are the only ones in this service that answer a
 # caller who has presented nothing. Everything else is behind a 256-bit token,
@@ -66,6 +80,9 @@ def redeem_invite(payload: TokenRequest, db: Session = Depends(get_db)) -> Token
     )
     invite.redeemed_at = now
     db.commit()
+
+    log.info("enrolled teacher_id=%s role=%s device=%r via=invite",
+             teacher.id, teacher.role, payload.device_name)
 
     # The only time the raw token is ever transmitted. Nothing stores it.
     return TokenResponse(
@@ -141,6 +158,9 @@ def sign_in_with_microsoft(payload: MicrosoftTokenRequest,
                     device_name=payload.device_name,
                     expires_at=expires))
     db.commit()
+
+    log.info("signed in teacher_id=%s role=%s device=%r via=microsoft expires=%s",
+             teacher.id, teacher.role, payload.device_name, expires.isoformat())
 
     return TokenResponse(token=raw,
                          teacher_id=teacher.id,

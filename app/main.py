@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
+from .limits import LimitBodySize
 from .routers import auth, images, sessions, students, templates
 
 DESCRIPTION = """
@@ -29,7 +30,15 @@ def create_app() -> FastAPI:
         version="1.0.0",
         description=DESCRIPTION,
         lifespan=lifespan,
+        docs_url="/docs" if settings.enable_docs else None,
+        redoc_url="/redoc" if settings.enable_docs else None,
+        openapi_url="/openapi.json" if settings.enable_docs else None,
     )
+
+    # Outermost, deliberately. This has to see bytes before FastAPI reads the
+    # body, which it does before any dependency — including the one that
+    # checks who is asking.
+    application.add_middleware(LimitBodySize, max_bytes=settings.max_request_bytes)
 
     if settings.cors_origins:
         application.add_middleware(

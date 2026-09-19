@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import text
 
 from app.db import SessionLocal
-from app.models import ApiToken, InviteCode
+from app.models import ApiToken, InviteCode, Teacher
 from app.security import generate_token, hash_token
 
 
@@ -753,3 +753,71 @@ def test_the_training_export_needs_an_admin(client, auth, admin_auth):
                       headers=auth).status_code == 403
     assert client.get("/api/v1/grading-sessions/exports/corrections",
                       headers=admin_auth).status_code == 200
+
+
+# ── 公開前的加固 ────────────────────────────────────────────────────────────
+
+
+def test_an_oversized_body_is_refused_before_it_is_read(client, auth):
+    """413 before the framework buffers anything.
+
+    FastAPI reads the whole body before dependencies run, so the token check
+    and the rate limiter both decide *after* the read. Starlette spools
+    multipart past 1 MB to a temp file with no total cap, on the same disk as
+    Postgres — so the failure this prevents is the database running out of
+    room, not the API running out of memory.
+    """
+    from app.config import get_settings
+
+    oversized = b"x" * (get_settings().max_request_bytes + 1024)
+    response = client.post(
+        "/api/v1/images",
+        files={"file": ("huge.png", oversized, "image/png")},
+        headers=auth,
+    )
+    assert response.status_code == 413
+
+
+def test_a_normal_upload_still_goes_through(client, auth, make_png):
+    """The ceiling has to be above every real scan, or it is an outage."""
+    response = client.post(
+        "/api/v1/images",
+        files={"file": ("page.png", make_png(1600, 2200), "image/png")},
+        headers=auth,
+    )
+    assert response.status_code == 201
+
+
+def test_the_api_docs_are_not_served(client):
+    """Nothing behind them is secret — the shipped app binary holds every
+    path — but publishing the map costs nothing to withhold."""
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert client.get(path).status_code == 404, path
+
+
+def test_signing_in_is_logged_without_the_credential(client, caplog):
+    """The access log already shows status codes; what it cannot show is who.
+
+    And a log that records the token has turned a rotated file into a second
+    copy of the thing it protects.
+    """
+    import logging
+
+    with SessionLocal() as db:
+        teacher = Teacher(name="陳老師", role="teacher")
+        db.add(teacher)
+        db.flush()
+        code = generate_token()
+        db.add(InviteCode(code_hash=hash_token(code), teacher_id=teacher.id))
+        db.commit()
+
+    with caplog.at_level(logging.INFO, logger="cramschool.auth"):
+        response = client.post("/api/v1/auth/token",
+                               json={"invite_code": code, "device_name": "王老師的 iPad"})
+    assert response.status_code == 200
+
+    logged = "\n".join(r.getMessage() for r in caplog.records)
+    assert "enrolled" in logged
+    assert "王老師的 iPad" in logged
+    assert code not in logged
+    assert response.json()["token"] not in logged

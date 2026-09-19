@@ -31,6 +31,20 @@ class Settings(BaseSettings):
     # teachers table is empty. Leave unset in production and use `cramctl`.
     bootstrap_admin_email: str | None = None
 
+    # The hard ceiling on a request body, applied before anything reads it.
+    # Above `max_upload_bytes` on purpose: the image endpoint's own limit is
+    # about what is a sensible scan, this is about what this process will
+    # tolerate at all, and a multipart envelope is slightly larger than the
+    # file inside it.
+    max_request_bytes: int = 30 * 1024 * 1024
+
+    # Whether to serve the interactive API docs.
+    #
+    # Off by default, which is the right way round once this is reachable
+    # from outside: nothing behind /docs is secret — the shipped app binary
+    # contains every path — but publishing the map costs nothing to withhold.
+    enable_docs: bool = False
+
     # ── 對外開放端點的速率限制 ──────────────────────────────────────────
     # Only two endpoints accept a request without a token, and both of them do
     # real work per call. These numbers are generous by design: redeeming an

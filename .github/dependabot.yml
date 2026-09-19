@@ -1,0 +1,35 @@
+# Pinning without an update habit is how you end up running a known-vulnerable
+# image parser on purpose. This is the other half of that decision.
+#
+# Pillow is the reason the cadence matters: it is the only dependency here
+# that parses bytes an attacker chose, and once the API is reachable from
+# outside the building it does so for strangers. The rest of the list is
+# ordinary hygiene.
+#
+# Weekly, grouped, and pointed at a CI that already runs lint, the test suite,
+# Postgres migrations forward and reverse, `alembic check`, and a container
+# health check — so "keep up to date" is a merge when green rather than an
+# afternoon.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the routine bumps; anything that breaks shows up as one
+      # red check rather than five.
+      python-packages:
+        patterns: ["*"]
+        exclude-patterns: ["pillow"]
+      # Pillow on its own, because it is the one worth reading the changelog
+      # for rather than merging on a green tick.
+      pillow:
+        patterns: ["pillow"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly

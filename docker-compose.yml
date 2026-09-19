@@ -78,6 +78,10 @@ services:
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-[]}
       AUTH_RATE_LIMIT_PER_IP: ${AUTH_RATE_LIMIT_PER_IP:-10}
       AUTH_RATE_LIMIT_OVERALL: ${AUTH_RATE_LIMIT_OVERALL:-60}
+      MAX_REQUEST_BYTES: ${MAX_REQUEST_BYTES:-31457280}
+      # Off unless someone turns it on for a session. Nothing behind the docs
+      # is secret, but there is no reason to publish the map.
+      ENABLE_DOCS: ${ENABLE_DOCS:-false}
       # Compose reads `.env` to substitute into THIS file; it does not hand
       # those variables to the container. Anything the app reads has to be
       # named here as well, or it is simply absent at runtime — and the

@@ -4,21 +4,29 @@ version = "1.0.0"
 description = "補習班批改系統後端：考卷模板、批改結果、影像儲存"
 requires-python = ">=3.11"
 
+# Exact versions, so an image built on the school laptop is the image CI
+# tested. Floors alone meant every rebuild re-resolved eleven packages and
+# "CI was green" said nothing about what actually shipped.
+#
+# Pinning on its own would be a downgrade: it turns silently-upgraded into
+# silently-stale, and Pillow — the one library here that parses bytes an
+# attacker chose — is exactly where staleness costs something. `.github/
+# dependabot.yml` is the other half, and neither is worth having alone.
 dependencies = [
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.32",
-    "sqlalchemy>=2.0.36",
-    "alembic>=1.14",
-    "psycopg[binary]>=3.2",
-    "pydantic>=2.10",
-    "pydantic-settings>=2.7",
-    "python-multipart>=0.0.20",
-    "pillow>=11.0",
-    "typer>=0.15",
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.52.3",
+    "sqlalchemy==2.0.52",
+    "alembic==1.19.1",
+    "psycopg[binary]==3.3.4",
+    "pydantic==2.13.4",
+    "pydantic-settings==2.15.0",
+    "python-multipart==0.0.32",
+    "pillow==12.3.0",
+    "typer==0.27.1",
     # RS256 verification is not something to hand-roll — getting `alg`
     # handling wrong is the single most common way OIDC integrations become
     # forgeable.
-    "pyjwt[crypto]>=2.10",
+    "pyjwt[crypto]==2.13.0",
 ]
 
 [project.optional-dependencies]
