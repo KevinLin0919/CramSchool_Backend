@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Student, Teacher
 from ..schemas import StudentIn, StudentOut
-from ..security import current_teacher
+from ..security import current_teacher, require_admin
 
 router = APIRouter(prefix="/api/v1/students", tags=["students"])
 
@@ -65,11 +65,15 @@ def update_student(
     return student
 
 
+# Admin only, and this one is a hard delete: the row goes, and
+# `ondelete="SET NULL"` then quietly detaches the child from every grading
+# session ever recorded against them. A teacher tidying up their own class
+# list should not be able to do that to somebody else's.
 @router.delete("/{student_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_student(
     student_id: int,
     db: Session = Depends(get_db),
-    _: Teacher = Depends(current_teacher),
+    _: Teacher = Depends(require_admin),
 ) -> Response:
     student = db.get(Student, student_id)
     if student is None:

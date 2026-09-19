@@ -5,12 +5,68 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import get_store
-from ..models import Image, Teacher
+from ..models import (
+    ExamTemplate,
+    GradedAnswer,
+    GradingSession,
+    Image,
+    Teacher,
+    TemplatePage,
+)
 from ..schemas import ImageOut
 from ..security import current_teacher
 from ..storage import BlobStore, UnsupportedImage
 
 router = APIRouter(prefix="/api/v1/images", tags=["images"])
+
+
+def _may_read(db: Session, image_id: int, teacher: Teacher) -> bool:
+    """Whether this teacher has any business seeing these bytes.
+
+    Holding a token used to be the whole test, and image ids are sequential,
+    so anyone with a device could count from one and collect every scanned
+    page, every cell crop of a child's handwriting, and every master sheet in
+    the school. That made the per-teacher scoping on grading sessions
+    cosmetic: the list refused to name the records, and the records' contents
+    were one loop away.
+
+    Two ways in, and nothing else:
+
+    * a page of a template that still exists — answer keys are school-wide by
+      design, every teacher grades against the same papers, and the master is
+      the paper;
+    * an image attached to a grading session this teacher owns, either the
+      page they photographed or a crop of one cell of it.
+
+    Deliberately not "any image referenced by any session": that is the hole,
+    written as a rule.
+    """
+    is_template_page = db.execute(
+        select(TemplatePage.id)
+        .join(ExamTemplate, ExamTemplate.id == TemplatePage.template_id)
+        .where(TemplatePage.image_id == image_id, ExamTemplate.deleted_at.is_(None))
+        .limit(1)
+    ).first()
+    if is_template_page is not None:
+        return True
+
+    own_page = db.execute(
+        select(GradingSession.id)
+        .where(GradingSession.image_id == image_id,
+               GradingSession.teacher_id == teacher.id)
+        .limit(1)
+    ).first()
+    if own_page is not None:
+        return True
+
+    own_cell = db.execute(
+        select(GradedAnswer.id)
+        .join(GradingSession, GradingSession.id == GradedAnswer.session_id)
+        .where(GradedAnswer.cell_image_id == image_id,
+               GradingSession.teacher_id == teacher.id)
+        .limit(1)
+    ).first()
+    return own_cell is not None
 
 
 @router.head(
@@ -93,18 +149,29 @@ def image_content(
     image_id: int,
     db: Session = Depends(get_db),
     store: BlobStore = Depends(get_store),
-    _: Teacher = Depends(current_teacher),
+    teacher: Teacher = Depends(current_teacher),
 ) -> FileResponse:
     image = db.get(Image, image_id)
-    if image is None:
+    # 404 for "not yours" as well as "not there", deliberately. Ids are
+    # sequential; a distinct 403 would turn this endpoint back into a way to
+    # count how many papers the school has scanned.
+    if image is None or not _may_read(db, image_id, teacher):
         raise HTTPException(status_code=404, detail="找不到影像")
     path = store.path_for(image.sha256)
     if not path.is_file():
         raise HTTPException(status_code=410, detail="影像檔案已遺失")
-    # Content-addressed, so the bytes behind this URL can never change: safe to
-    # cache hard and forever.
+    # Content-addressed, so the bytes behind this URL can never change: safe
+    # to cache hard and forever. `private`, though, not `public` — the
+    # response is the answer to an authenticated request, and `public` is the
+    # exact opt-in that lets a shared cache keep it and hand it to the next
+    # person who asks. It said `public` because the bytes are immutable,
+    # which is true and is a different question.
     return FileResponse(
         path,
         media_type=image.mime,
-        headers={"Cache-Control": "public, max-age=31536000, immutable", "ETag": image.sha256},
+        headers={
+            "Cache-Control": "private, max-age=31536000, immutable",
+            "Vary": "Authorization",
+            "ETag": image.sha256,
+        },
     )

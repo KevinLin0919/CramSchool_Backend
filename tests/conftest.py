@@ -74,6 +74,17 @@ def auth(client) -> dict[str, str]:
 
 
 @pytest.fixture
+def admin_auth(client) -> dict[str, str]:
+    """Someone who may edit the shared answer keys.
+
+    Kept separate from `auth` rather than making every test account an admin,
+    because the interesting assertion is what an ordinary teacher CANNOT do —
+    and a suite where everyone is an admin cannot make it.
+    """
+    return {"Authorization": f"Bearer {_enrol(client, '林主任', 'admin')}"}
+
+
+@pytest.fixture
 def other_auth(client) -> dict[str, str]:
     """A second teacher at the same school, for anything about isolation.
 

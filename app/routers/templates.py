@@ -19,7 +19,7 @@ from ..schemas import (
     TemplateSummary,
     TemplateUpdate,
 )
-from ..security import current_teacher
+from ..security import current_teacher, require_admin
 from ..storage import BlobStore
 
 router = APIRouter(prefix="/api/v1/templates", tags=["templates"])
@@ -188,12 +188,23 @@ def create_template(
     return detail(_get_or_404(db, template.id))
 
 
+# Admin from here down.
+#
+# `require_admin` existed in security.py and was wired to nothing, so every
+# teacher was one. Verified against a live pair of accounts: teacher B could
+# rewrite teacher A's answer key from 7 to 0, delete A's template, and hard
+# delete a student record.
+#
+# The answer-key case is the one that matters, and it is quiet: a changed key
+# does not break anything, it just makes every paper graded afterwards wrong,
+# for the whole class, with nothing on screen to say so. Grading against a
+# shared key is the design; editing one is not an ordinary teacher's action.
 @router.patch("/{template_id}", response_model=TemplateDetail, summary="更新模板")
 def update_template(
     template_id: int,
     payload: TemplateUpdate,
     db: Session = Depends(get_db),
-    _: Teacher = Depends(current_teacher),
+    admin: Teacher = Depends(require_admin),
     if_match: str | None = Header(default=None, alias="If-Match"),
 ) -> TemplateDetail:
     """Optimistic locking via `If-Match: "<revision>"`.
@@ -222,6 +233,7 @@ def update_template(
     if payload.pages is not None:
         _apply_pages(db, template, payload.pages)
 
+    template.updated_by = admin.id
     template.revision += 1
     db.commit()
     return detail(_get_or_404(db, template_id))
@@ -231,7 +243,7 @@ def update_template(
 def delete_template(
     template_id: int,
     db: Session = Depends(get_db),
-    _: Teacher = Depends(current_teacher),
+    _: Teacher = Depends(require_admin),
 ) -> Response:
     """Soft delete, so an offline phone can learn about it on next sync.
 

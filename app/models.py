@@ -200,6 +200,14 @@ class ExamTemplate(Base):
     subject: Mapped[str | None] = mapped_column(String(20))
 
     created_by: Mapped[int | None] = mapped_column(ForeignKey("teachers.id", ondelete="SET NULL"))
+    # Who last changed it, which `created_by` cannot answer.
+    #
+    # Editing a template means editing an answer key, and that is the one
+    # change here with no visible symptom: nothing breaks, every paper graded
+    # afterwards is simply wrong, for the whole class. Without this the
+    # question "who set question 7 to 0, and when" has no answer at all —
+    # `created_by` is written once and never touched again.
+    updated_by: Mapped[int | None] = mapped_column(ForeignKey("teachers.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = mapped_column(
         UTCDateTime, default=utcnow, onupdate=utcnow, nullable=False

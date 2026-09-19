@@ -13,7 +13,7 @@ from ..schemas import (
     GradingSessionOut,
     GradingSessionSummary,
 )
-from ..security import current_teacher
+from ..security import current_teacher, require_admin
 
 router = APIRouter(prefix="/api/v1/grading-sessions", tags=["grading"])
 
@@ -220,7 +220,7 @@ def delete_session(
 @router.get("/exports/corrections", summary="匯出老師修正過的格子（訓練資料）")
 def export_corrections(
     db: Session = Depends(get_db),
-    _: Teacher = Depends(current_teacher),
+    _: Teacher = Depends(require_admin),
     since: datetime | None = None,
     limit: int = Query(default=5000, ge=1, le=50000),
 ) -> list[dict]:
@@ -237,6 +237,13 @@ def export_corrections(
     by who happened to grade the paper would leave each slice too small to
     train on — which is the entire reason the endpoint exists. What it returns
     is a crop and a character, not who marked whose child.
+
+    Admin, though. Not being scoped is the point, and it is also what makes
+    this the one call that hands back the whole school in a single response —
+    up to fifty thousand rows, each with a URL to a child's handwriting. That
+    was defensible while the only callers were three people on a tailnet. It
+    is not a device token's business, and a device token is what a teacher's
+    phone carries.
     """
     query = (
         select(GradedAnswer, GradingSession.scanned_at)

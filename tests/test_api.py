@@ -1,6 +1,8 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import text
+
 from app.db import SessionLocal
 from app.models import ApiToken, InviteCode
 from app.security import generate_token, hash_token
@@ -267,15 +269,15 @@ def test_referencing_a_missing_image_is_rejected(client, auth):
     assert "不存在" in response.json()["detail"]
 
 
-def test_if_match_blocks_a_stale_overwrite(client, auth, uploaded_image):
-    """Two teachers with the same template open; the second save must not win silently."""
+def test_if_match_blocks_a_stale_overwrite(client, auth, admin_auth, uploaded_image):
+    """Two admins with the same template open; the second save must not win silently."""
     image = uploaded_image()
     template_id = make_template(client, auth, image).json()["id"]
 
     first = client.patch(
         f"/api/v1/templates/{template_id}",
         json={"exam_name": "王老師改的"},
-        headers={**auth, "If-Match": '"1"'},
+        headers={**admin_auth, "If-Match": '"1"'},
     )
     assert first.status_code == 200
     assert first.json()["revision"] == 2
@@ -283,7 +285,7 @@ def test_if_match_blocks_a_stale_overwrite(client, auth, uploaded_image):
     stale = client.patch(
         f"/api/v1/templates/{template_id}",
         json={"exam_name": "李老師改的"},
-        headers={**auth, "If-Match": '"1"'},
+        headers={**admin_auth, "If-Match": '"1"'},
     )
     assert stale.status_code == 412
 
@@ -292,13 +294,13 @@ def test_if_match_blocks_a_stale_overwrite(client, auth, uploaded_image):
     ] == "王老師改的"
 
 
-def test_delete_is_soft_and_surfaces_as_a_tombstone(client, auth, uploaded_image):
+def test_delete_is_soft_and_surfaces_as_a_tombstone(client, auth, admin_auth, uploaded_image):
     """An offline phone has to be able to learn that a template disappeared."""
     image = uploaded_image()
     template_id = make_template(client, auth, image).json()["id"]
     before = client.get("/api/v1/templates", headers=auth).json()["sync_cursor"]
 
-    assert client.delete(f"/api/v1/templates/{template_id}", headers=auth).status_code == 204
+    assert client.delete(f"/api/v1/templates/{template_id}", headers=admin_auth).status_code == 204
     assert client.get(f"/api/v1/templates/{template_id}", headers=auth).status_code == 404
 
     listing = client.get("/api/v1/templates", headers=auth).json()
@@ -436,7 +438,8 @@ def test_one_teacher_cannot_delete_anothers_grading(client, auth, other_auth, up
                       headers=auth).status_code == 200
 
 
-def test_training_export_is_not_scoped_to_one_teacher(client, auth, other_auth, uploaded_image):
+def test_training_export_is_not_scoped_to_one_teacher(client, auth, other_auth, admin_auth,
+                                                      uploaded_image):
     """The one endpoint that deliberately crosses the boundary.
 
     Its reader is a training pipeline, not a teacher looking up a class. Split
@@ -454,7 +457,7 @@ def test_training_export_is_not_scoped_to_one_teacher(client, auth, other_auth, 
         payload["answers"][0]["cell_image_id"] = cell["id"]
         client.put(f"/api/v1/grading-sessions/{uuid.uuid4()}", json=payload, headers=headers)
 
-    rows = client.get("/api/v1/grading-sessions/exports/corrections", headers=auth).json()
+    rows = client.get("/api/v1/grading-sessions/exports/corrections", headers=admin_auth).json()
     assert len(rows) == 2, "a teacher's export should still carry the whole school's labels"
 
 
@@ -492,7 +495,8 @@ def test_teacher_correction_is_captured_with_a_timestamp(client, auth, uploaded_
     assert answer["corrected_at"] is not None
 
 
-def test_corrections_export_yields_labelled_training_rows(client, auth, uploaded_image):
+def test_corrections_export_yields_labelled_training_rows(client, auth, admin_auth,
+                                                          uploaded_image):
     image = uploaded_image()
     template_id = make_template(client, auth, image).json()["id"]
 
@@ -501,7 +505,7 @@ def test_corrections_export_yields_labelled_training_rows(client, auth, uploaded
     payload["answers"][1]["cell_image_id"] = image["id"]
     client.put(f"/api/v1/grading-sessions/{uuid.uuid4()}", json=payload, headers=auth)
 
-    rows = client.get("/api/v1/grading-sessions/exports/corrections", headers=auth).json()
+    rows = client.get("/api/v1/grading-sessions/exports/corrections", headers=admin_auth).json()
     assert len(rows) == 1
     assert rows[0]["label"] == "2"
     assert rows[0]["model_read"] == "3"
@@ -519,10 +523,11 @@ def test_invalid_verdict_is_rejected(client, auth, uploaded_image):
     assert response.status_code == 422
 
 
-def test_session_against_a_deleted_template_is_rejected(client, auth, uploaded_image):
+def test_session_against_a_deleted_template_is_rejected(client, auth, admin_auth,
+                                                        uploaded_image):
     image = uploaded_image()
     template_id = make_template(client, auth, image).json()["id"]
-    client.delete(f"/api/v1/templates/{template_id}", headers=auth)
+    client.delete(f"/api/v1/templates/{template_id}", headers=admin_auth)
     response = client.put(
         f"/api/v1/grading-sessions/{uuid.uuid4()}",
         json=session_payload(template_id),
@@ -627,3 +632,124 @@ def test_a_malformed_body_still_spends_the_budget(client):
         assert client.post("/api/v1/auth/token", json={}).status_code == 422
 
     assert client.post("/api/v1/auth/token", json={}).status_code == 429
+
+
+# ── 權限：誰看得到什麼、誰改得動什麼 ─────────────────────────────────────────
+
+
+def test_one_teacher_cannot_read_anothers_cell_crops(client, auth, other_auth,
+                                                     uploaded_image, make_png):
+    """The hole that made scoping the session list cosmetic.
+
+    Image ids are sequential. Before this, holding any device token was the
+    whole test, so a teacher could count from one and collect every crop of
+    every child's handwriting in the school — while the endpoint that lists
+    grading sessions politely returned an empty array.
+    """
+    image = uploaded_image()
+    template_id = make_template(client, auth, image).json()["id"]
+
+    crop = client.post(
+        "/api/v1/images",
+        files={"file": ("cell.png", make_png(60, 60, (10, 10, 10)), "image/png")},
+        headers=auth,
+    ).json()
+
+    session_uuid = str(uuid.uuid4())
+    body = session_payload(template_id)
+    body["answers"][0]["cell_image_id"] = crop["id"]
+    assert client.put(f"/api/v1/grading-sessions/{session_uuid}", json=body,
+                      headers=auth).status_code == 200
+
+    # The teacher who graded it still sees it.
+    assert client.get(f"/api/v1/images/{crop['id']}/content",
+                      headers=auth).status_code == 200
+    # Their colleague does not — and is told it does not exist rather than
+    # that it exists and is someone else's, which would make counting useful.
+    assert client.get(f"/api/v1/images/{crop['id']}/content",
+                      headers=other_auth).status_code == 404
+
+
+def test_every_teacher_can_still_read_the_shared_masters(client, auth, other_auth,
+                                                         uploaded_image):
+    """Answer keys are school-wide by design, and the master IS the paper.
+
+    The narrow reading of the fix above would lock each teacher out of the
+    templates they are supposed to grade against.
+    """
+    image = uploaded_image()
+    make_template(client, auth, image)
+    assert client.get(f"/api/v1/images/{image['id']}/content",
+                      headers=other_auth).status_code == 200
+
+
+def test_an_unreferenced_image_is_not_readable_by_anyone(client, auth, other_auth,
+                                                         make_png):
+    """Uploaded and then attached to nothing: reachable by no rule."""
+    orphan = client.post(
+        "/api/v1/images",
+        files={"file": ("x.png", make_png(40, 40, (1, 2, 3)), "image/png")},
+        headers=auth,
+    ).json()
+    assert client.get(f"/api/v1/images/{orphan['id']}/content",
+                      headers=other_auth).status_code == 404
+
+
+def test_an_ordinary_teacher_cannot_rewrite_the_answer_key(client, auth, admin_auth,
+                                                           uploaded_image):
+    """The quiet one.
+
+    A changed key breaks nothing visible; it makes every paper graded
+    afterwards wrong, for the whole class. `require_admin` existed and was
+    wired to nothing, so every teacher could do this.
+    """
+    image = uploaded_image()
+    template_id = make_template(client, auth, image).json()["id"]
+
+    refused = client.patch(f"/api/v1/templates/{template_id}",
+                           json={"exam_name": "改成別的"}, headers=auth)
+    assert refused.status_code == 403
+
+    assert client.patch(f"/api/v1/templates/{template_id}",
+                        json={"exam_name": "主任改的"},
+                        headers=admin_auth).status_code == 200
+
+
+def test_a_template_edit_records_who_made_it(client, auth, admin_auth, uploaded_image):
+    """`created_by` is written once and never again, so it cannot answer this."""
+    image = uploaded_image()
+    template_id = make_template(client, auth, image).json()["id"]
+
+    client.patch(f"/api/v1/templates/{template_id}",
+                 json={"exam_name": "主任改的"}, headers=admin_auth)
+
+    with SessionLocal() as db:
+        row = db.execute(
+            text("SELECT updated_by FROM exam_templates WHERE id = :i"),
+            {"i": template_id},
+        ).scalar_one()
+    assert row is not None
+
+
+def test_an_ordinary_teacher_cannot_delete_a_student(client, auth, admin_auth):
+    """A hard delete of a minor's record, which then detaches them from every
+    grading session ever recorded against them."""
+    student = client.post("/api/v1/students",
+                          json={"name": "王小明", "class_name": "國二A"},
+                          headers=admin_auth).json()
+    assert client.delete(f"/api/v1/students/{student['id']}",
+                         headers=auth).status_code == 403
+    assert client.delete(f"/api/v1/students/{student['id']}",
+                         headers=admin_auth).status_code == 204
+
+
+def test_the_training_export_needs_an_admin(client, auth, admin_auth):
+    """Fifty thousand rows of other people's children in one response.
+
+    Not being scoped is the point of this endpoint, and it is also why a
+    device token in a teacher's pocket has no business calling it.
+    """
+    assert client.get("/api/v1/grading-sessions/exports/corrections",
+                      headers=auth).status_code == 403
+    assert client.get("/api/v1/grading-sessions/exports/corrections",
+                      headers=admin_auth).status_code == 200
