@@ -11,7 +11,7 @@ jobs:
     name: Lint + tests (SQLite)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v5
       - run: uv venv .venv
       - run: uv pip install --python .venv -e ".[dev]"
@@ -33,7 +33,7 @@ jobs:
           --health-interval 10s --health-timeout 5s --health-retries 5
         ports: ["5432:5432"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v5
       - run: uv venv .venv
       - run: uv pip install --python .venv -e ".[dev]"
@@ -67,7 +67,7 @@ jobs:
     name: Docker image builds and starts
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build -t cram_api:ci .
       - name: Container becomes healthy
         run: |
