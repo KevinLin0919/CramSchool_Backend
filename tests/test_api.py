@@ -821,3 +821,71 @@ def test_signing_in_is_logged_without_the_credential(client, caplog):
     assert "王老師的 iPad" in logged
     assert code not in logged
     assert response.json()["token"] not in logged
+
+
+# ── 訓練資料匯出：什麼算證據 ─────────────────────────────────────────────────
+
+
+def _labelled_cell(client, auth, admin_auth, uploaded_image, make_png, *,
+                   teacher_value, leverage=None):
+    """One graded paper whose single answer carries a label and a crop."""
+    image = uploaded_image()
+    template_id = make_template(client, auth, image).json()["id"]
+    crop = client.post(
+        "/api/v1/images",
+        files={"file": ("cell.png", make_png(48, 48, (7, 7, 7)), "image/png")},
+        headers=auth,
+    ).json()
+
+    body = session_payload(template_id)
+    body["answers"] = [body["answers"][0]]
+    body["answers"][0]["teacher_value"] = teacher_value
+    body["answers"][0]["cell_image_id"] = crop["id"]
+    if leverage is not None:
+        body["answers"][0]["alignment_leverage"] = leverage
+
+    assert client.put(f"/api/v1/grading-sessions/{uuid.uuid4()}", json=body,
+                      headers=auth).status_code == 200
+    return client.get("/api/v1/grading-sessions/exports/corrections",
+                      headers=admin_auth).json()
+
+
+def test_a_real_correction_is_exported(client, auth, admin_auth,
+                                       uploaded_image, make_png):
+    rows = _labelled_cell(client, auth, admin_auth, uploaded_image, make_png,
+                          teacher_value="3")
+    assert [r["label"] for r in rows] == ["3"]
+
+
+def test_a_disposition_is_not_a_handwriting_label(client, auth, admin_auth,
+                                                  uploaded_image, make_png):
+    """`__unreadable__` arrives in the same column as a correction and means
+    the opposite: a person looked and there was nothing to transcribe. A crop
+    carrying it teaches the recogniser nothing."""
+    for mark in ("__blank__", "__unreadable__"):
+        rows = _labelled_cell(client, auth, admin_auth, uploaded_image, make_png,
+                              teacher_value=mark)
+        assert [r for r in rows if r["label"] == mark] == []
+
+
+def test_a_crop_the_alignment_could_barely_place_is_excluded(
+        client, auth, admin_auth, uploaded_image, make_png):
+    """Blank paper from a drifted box looks exactly like an empty cell, so the
+    teacher who labelled it could not tell. The number can."""
+    rows = _labelled_cell(client, auth, admin_auth, uploaded_image, make_png,
+                          teacher_value="5", leverage=9.0)
+    assert [r for r in rows if r["label"] == "5"] == []
+
+    rows = _labelled_cell(client, auth, admin_auth, uploaded_image, make_png,
+                          teacher_value="6", leverage=0.4)
+    assert [r["label"] for r in rows if r["label"] == "6"] == ["6"]
+
+
+def test_rows_graded_before_leverage_existed_are_kept(
+        client, auth, admin_auth, uploaded_image, make_png):
+    """Null means unknown, not bad. Excluding every historical row would empty
+    the only labelled dataset this project has."""
+    rows = _labelled_cell(client, auth, admin_auth, uploaded_image, make_png,
+                          teacher_value="7", leverage=None)
+    assert [r["label"] for r in rows if r["label"] == "7"] == ["7"]
+    assert rows[0]["alignment_leverage"] is None

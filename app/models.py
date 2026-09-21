@@ -368,6 +368,14 @@ class GradedAnswer(Base):
 
     expected: Mapped[str] = mapped_column(Text, nullable=False, default="")
     recognized: Mapped[str | None] = mapped_column(Text)
+    # How far this cell sat from the evidence the alignment was fitted to, on
+    # the frame its crop was taken from.
+    #
+    # Sent by the app because a person cannot see it. A box that drifted onto
+    # blank paper and a cell the student left empty are the same picture, and
+    # the export below needs to tell them apart: a crop of the wrong part of
+    # the page carries a label that teaches the recogniser nothing.
+    alignment_leverage: Mapped[float | None] = mapped_column(Float)
 
     # Three outcomes, not two: marking a cell wrong because the model could not
     # read it blames the student for our failure.

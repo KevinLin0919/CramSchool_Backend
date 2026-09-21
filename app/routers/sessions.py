@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
@@ -16,6 +16,12 @@ from ..schemas import (
 from ..security import current_teacher, require_admin
 
 router = APIRouter(prefix="/api/v1/grading-sessions", tags=["grading"])
+
+# What the app writes into `teacher_value` when the teacher's answer is not a
+# character. They are dispositions, not transcriptions, and the training
+# export has to keep them out — a crop labelled "unreadable" is a picture with
+# no ground truth attached.
+RESERVED_TEACHER_MARKS = ("__blank__", "__unreadable__")
 
 
 def _out(session: GradingSession, template_name: str | None) -> GradingSessionOut:
@@ -127,6 +133,7 @@ def upsert_session(
                 teacher_value=answer.teacher_value,
                 corrected_at=corrected_at,
                 cell_image_id=answer.cell_image_id,
+                alignment_leverage=answer.alignment_leverage,
             )
         )
 
@@ -223,6 +230,7 @@ def export_corrections(
     _: Teacher = Depends(require_admin),
     since: datetime | None = None,
     limit: int = Query(default=5000, ge=1, le=50000),
+    max_leverage: float = Query(default=2.0, ge=0),
 ) -> list[dict]:
     """Every cell a teacher overrode, with its crop — a labelled dataset.
 
@@ -245,11 +253,29 @@ def export_corrections(
     is not a device token's business, and a device token is what a teacher's
     phone carries.
     """
+    # Two exclusions, both about what a label is evidence OF.
+    #
+    # `__blank__` and `__unreadable__` are the app's way of recording that a
+    # teacher looked and there was nothing to transcribe. They arrive in the
+    # same column as a real correction and mean the opposite of one: a crop
+    # labelled "unreadable" says nothing about what the character was.
+    #
+    # And a crop from a cell the alignment could barely place is a picture of
+    # somewhere else on the page. The teacher who labelled it could not tell —
+    # blank paper from a drifted box looks exactly like an empty cell — so the
+    # filtering has to happen here, where the number is.
     query = (
         select(GradedAnswer, GradingSession.scanned_at)
         .join(GradingSession, GradingSession.id == GradedAnswer.session_id)
         .where(GradedAnswer.teacher_value.isnot(None))
+        .where(GradedAnswer.teacher_value.notin_(RESERVED_TEACHER_MARKS))
         .where(GradedAnswer.cell_image_id.isnot(None))
+        .where(
+            or_(
+                GradedAnswer.alignment_leverage.is_(None),
+                GradedAnswer.alignment_leverage <= max_leverage,
+            )
+        )
     )
     if since is not None:
         query = query.where(GradedAnswer.corrected_at >= since)
@@ -264,6 +290,7 @@ def export_corrections(
             "expected": answer.expected,
             "confidence": answer.confidence,
             "margin": answer.margin,
+            "alignment_leverage": answer.alignment_leverage,
             "scanned_at": scanned_at.isoformat(),
         }
         for answer, scanned_at in rows

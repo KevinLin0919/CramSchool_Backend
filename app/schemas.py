@@ -184,6 +184,7 @@ class GradedAnswerIn(BaseModel):
     margin: float | None = Field(default=None, ge=0, le=1)
     teacher_value: str | None = None
     cell_image_id: int | None = None
+    alignment_leverage: float | None = Field(default=None, ge=0)
 
 
 class GradedAnswerOut(ORMModel):
@@ -196,6 +197,7 @@ class GradedAnswerOut(ORMModel):
     teacher_value: str | None
     corrected_at: datetime | None
     cell_image_id: int | None
+    alignment_leverage: float | None
 
 
 class GradingSessionIn(BaseModel):
