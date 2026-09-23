@@ -110,6 +110,44 @@ schema 提供服務。
 
 ⚠️ 不要填 `0.0.0.0`——那會同時開放所有介面，包含你沒想到的那些。
 
+### 對外開放：Tailscale Funnel（目前採用）
+
+老師要在補習班以外的地方也能用，所以 API 經由 Funnel 公開：
+
+```
+https://commaserver.tail475cee.ts.net
+```
+
+**API 自己的驗證是唯一那道門**——Funnel 不做任何身分檢查。所以開通前先做了
+速率限制、權限修補、請求大小上限，並關掉 `/docs`。
+
+需要的設定（`.env`）：
+
+```env
+API_BIND_LOCAL=127.0.0.1                  # Funnel 只會代理到 loopback
+TRUSTED_PROXIES='["172.31.240.1"]'        # compose bridge 的 gateway，不是 127.0.0.1
+```
+
+`TRUSTED_PROXIES` **必須是 bridge gateway**：Docker 把 loopback 連線交給 userland
+proxy，由 bridge 重新發起，所以網際網路上每一個呼叫者進到容器時都是
+`172.31.240.1`。不設的話，每來源的限速就變成全世界共用一個桶子。
+（子網段在 compose 裡固定為 `172.31.240.0/24`，所以這個值不會變。）
+
+開通（在主機上，設定會持續到重開機後）：
+
+```bash
+tailscale funnel --bg 127.0.0.1:8085
+tailscale funnel status
+tailscale funnel --https=443 off          # 關閉
+```
+
+tailnet 後台需要的三件事（管理員）：停用這台的 key expiry、DNS 頁啟用 HTTPS
+Certificates、存取控制加 `nodeAttrs`（範圍限定到擁有這台機器的帳號，不是
+`autogroup:member`）。
+
+驗證方式：用公網 DNS 解析（本機若在 tailnet 上會解析到內網位址），`curl
+--resolve` 走中繼；偽造 `X-Forwarded-For` 連打第 11 次應回 429。
+
 ### 選配：Tailscale Serve（好記的網址 + 合法憑證）
 
 ```bash

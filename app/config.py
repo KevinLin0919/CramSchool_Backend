@@ -56,9 +56,22 @@ class Settings(BaseSettings):
 
     # Whose `X-Forwarded-For` to believe. Empty means nobody's — the peer
     # address is then the only thing counted, which is correct when this
-    # process is reached directly. Set it to the proxy in front (Tailscale
-    # Funnel terminates on this host, so 127.0.0.1) and only then does the
-    # header become evidence about who is really calling.
+    # process is reached directly.
+    #
+    # Behind Tailscale Funnel this must be the compose bridge GATEWAY,
+    # 172.31.240.1 — measured, not 127.0.0.1 as this comment used to say.
+    # Funnel connects to the loopback-published port, and Docker hands a
+    # loopback connection to the container through its userland proxy, which
+    # re-originates it from the bridge. So every caller on the internet
+    # arrives as 172.31.240.1, and without this the per-caller limit is one
+    # bucket shared by the whole internet.
+    #
+    # Trusting it is safe because nothing else can arrive from there: LAN and
+    # tailnet clients reach the container through iptables DNAT with their
+    # own addresses intact. Funnel appends the real caller to the header, and
+    # `ratelimit.client_key` takes the rightmost entry — the one Funnel wrote
+    # — so a caller who sends their own `X-Forwarded-For` changes nothing.
+    # Both halves were checked end to end through the public relay.
     trusted_proxies: tuple[str, ...] = ()
 
     # ── Microsoft Entra sign-in ─────────────────────────────────────────
