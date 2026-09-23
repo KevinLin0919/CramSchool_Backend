@@ -62,7 +62,15 @@ deploy/healthcheck.sh         # 不通時才出聲
 ```cron
 17 3 * * *   /path/to/deploy/backup.sh >> ~/backups/backup.log 2>&1
 */10 * * * * /path/to/deploy/healthcheck.sh
+*/10 * * * * HEALTH_NAME=funnel HEALTH_PUBLIC_DNS=1 \
+             HEALTH_URL=https://commaserver.tail475cee.ts.net/health /path/to/deploy/healthcheck.sh
 ```
+
+兩個檢查分開，因為它們回答不同的問題。第一個問「那台機器活著嗎」，第二個問
+「在外面的老師連得到嗎」——後者經過 Tailscale 的公網中繼，可以自己壞掉（Funnel
+設定失效、ACL 被改、中繼本身）。`HEALTH_PUBLIC_DNS=1` 是關鍵：跑檢查的機器如果
+本身在 tailnet 上，公網名稱會被 MagicDNS 解析成內網位址，直接打就繞過了要測的那
+條路。
 
 備份是**拉**的，因為伺服器上的 cron 寫到伺服器自己的硬碟，擋得住誤刪和壞掉的
 migration，擋不住那台筆電摔了、被偷了、或硬碟死了。
