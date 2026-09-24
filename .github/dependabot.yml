@@ -12,7 +12,9 @@
 # afternoon.
 version: 2
 updates:
-  - package-ecosystem: pip
+  # `uv` rather than `pip`: it bumps pyproject.toml and uv.lock together, so a
+  # PR is exactly what CI tests and what the image installs.
+  - package-ecosystem: uv
     directory: "/"
     schedule:
       interval: weekly

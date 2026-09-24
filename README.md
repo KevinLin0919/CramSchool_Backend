@@ -30,8 +30,8 @@
 ## 本機開發
 
 ```bash
-uv venv .venv && uv pip install --python .venv -e ".[dev]"
-.venv/bin/python -m pytest              # 76 項
+uv sync --extra dev
+.venv/bin/python -m pytest              # 103 項
 .venv/bin/uvicorn app.main:app --reload --port 8085
 ```
 

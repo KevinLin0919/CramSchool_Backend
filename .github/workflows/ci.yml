@@ -11,10 +11,12 @@ jobs:
     name: Lint + tests (SQLite)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - run: uv venv .venv
-      - run: uv pip install --python .venv -e ".[dev]"
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      # Exactly the versions in uv.lock, on the Python the image runs. Resolving
+      # fresh here is how a transitive release nobody chose turned this job red
+      # for a week while the image kept running something else.
+      - run: uv sync --locked --extra dev --python 3.13
       - run: .venv/bin/python -m ruff check app scripts tests
       - run: .venv/bin/python -m pytest -q
 
@@ -33,10 +35,9 @@ jobs:
           --health-interval 10s --health-timeout 5s --health-retries 5
         ports: ["5432:5432"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - run: uv venv .venv
-      - run: uv pip install --python .venv -e ".[dev]"
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --locked --extra dev --python 3.13
 
       # The suite runs on SQLite for speed, but production is Postgres and the
       # two disagree in exactly the places that matter (timestamp precision,
@@ -67,7 +68,7 @@ jobs:
     name: Docker image builds and starts
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build -t cram_api:ci .
       - name: Container becomes healthy
         run: |

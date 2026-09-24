@@ -12,16 +12,25 @@ RUN apt-get update \
 
 WORKDIR /srv
 
+# Build-time only; nothing at runtime calls it.
+COPY --from=ghcr.io/astral-sh/uv:0.11.1 /uv /usr/local/bin/uv
+
 # Dependencies first: application code changes far more often than the
 # dependency set, and this keeps the expensive layer cached across rebuilds.
-COPY pyproject.toml README.md ./
-RUN pip install --upgrade pip && pip install .
+#
+# From uv.lock, hash-checked, rather than resolved at build time. Resolving
+# here meant the image got whatever the transitive packages were that day —
+# not what CI had tested — and a rebuild months apart could differ silently.
+COPY pyproject.toml uv.lock README.md ./
+RUN uv export --locked --no-emit-project -o /tmp/requirements.txt \
+ && uv pip install --system --require-hashes -r /tmp/requirements.txt \
+ && rm /tmp/requirements.txt
 
 COPY alembic.ini ./
 COPY alembic ./alembic
 COPY app ./app
 COPY scripts ./scripts
-RUN pip install --no-deps .
+RUN uv pip install --system --no-deps .
 
 # Runs unprivileged. The data volume is chowned in the entrypoint because its
 # ownership is decided by the host mount, not by this image.
