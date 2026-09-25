@@ -1,4 +1,5 @@
 import logging
+import secrets
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -8,9 +9,16 @@ from sqlalchemy.orm import Session
 from ..auth_microsoft import MicrosoftAuthError, NotEnrolled, TokenVerifier
 from ..config import Settings, get_settings
 from ..db import get_db
-from ..models import ApiToken, InviteCode, Teacher
+from ..models import ApiToken, InviteCode, Teacher, WebLoginCode
 from ..ratelimit import RateLimiter, client_key
-from ..schemas import MicrosoftTokenRequest, TeacherOut, TokenRequest, TokenResponse
+from ..schemas import (
+    MicrosoftTokenRequest,
+    TeacherOut,
+    TokenRequest,
+    TokenResponse,
+    WebCodeOut,
+    WebLoginIn,
+)
 from ..security import current_teacher, current_token, generate_token, hash_token
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -215,3 +223,77 @@ def logout_all(
         if token.revoked_at is None:
             token.revoked_at = now
     db.commit()
+
+
+# ── 網頁登入 ─────────────────────────────────────────────────────────────────
+#
+# The browser signs in by typing six digits the phone shows. No second
+# Microsoft app registration, no password: the phone already proves who the
+# teacher is, and this hands that proof across a desk.
+#
+# Six digits is a million possibilities, so the guessing budget is what makes
+# it safe: its own limiter (so someone hammering this cannot lock teachers out
+# of the phone sign-in, which uses the other one), a three-minute life, one
+# use, and one live code per teacher. At ten guesses a minute from one address
+# and thirty overall, a live code is found with odds far below one in a
+# thousand before it expires.
+
+WEB_CODE_TTL = timedelta(minutes=3)
+WEB_TOKEN_TTL = timedelta(hours=12)
+
+_web_limit = RateLimiter(per_key=10, overall=30, window_seconds=60)
+
+
+def web_rate_limited(request: Request, settings: Settings = Depends(get_settings)) -> None:
+    _web_limit.check(client_key(request, settings.trusted_proxies))
+
+
+@router.post("/web-code", response_model=WebCodeOut, summary="產生網頁登入碼（由手機呼叫）")
+def create_web_code(
+    db: Session = Depends(get_db),
+    token: ApiToken = Depends(current_token),
+) -> WebCodeOut:
+    # A browser session cannot mint another: the chain starts at a phone.
+    if token.kind != "device":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="請從手機 App 產生登入碼")
+    now = datetime.now(UTC)
+    for old in db.execute(select(WebLoginCode).where(
+        WebLoginCode.teacher_id == token.teacher_id, WebLoginCode.used_at.is_(None),
+    )).scalars():
+        old.used_at = now
+
+    live = {h for (h,) in db.execute(select(WebLoginCode.code_hash).where(
+        WebLoginCode.used_at.is_(None), WebLoginCode.expires_at > now))}
+    while True:
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        if hash_token(code) not in live:
+            break
+    expires = now + WEB_CODE_TTL
+    db.add(WebLoginCode(teacher_id=token.teacher_id, code_hash=hash_token(code),
+                        expires_at=expires))
+    db.commit()
+    return WebCodeOut(code=code, expires_at=expires)
+
+
+@router.post("/web-login", response_model=TokenResponse, summary="以登入碼登入網頁",
+             dependencies=[Depends(web_rate_limited)])
+def web_login(payload: WebLoginIn, db: Session = Depends(get_db)) -> TokenResponse:
+    now = datetime.now(UTC)
+    row = db.execute(select(WebLoginCode).where(
+        WebLoginCode.code_hash == hash_token(payload.code), WebLoginCode.used_at.is_(None),
+    )).scalar_one_or_none()
+    if row is None or row.expires_at < now:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="登入碼錯誤或已過期")
+    teacher = db.get(Teacher, row.teacher_id)
+    if teacher is None or not teacher.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="帳號已停用")
+
+    row.used_at = now
+    raw = generate_token()
+    expires = now + WEB_TOKEN_TTL
+    db.add(ApiToken(teacher_id=teacher.id, token_hash=hash_token(raw), device_name="網頁",
+                    expires_at=expires, kind="web"))
+    db.commit()
+    log.info("web sign-in teacher_id=%s", teacher.id)
+    return TokenResponse(token=raw, teacher_id=teacher.id, teacher_name=teacher.name,
+                         role=teacher.role, expires_at=expires)

@@ -11,6 +11,7 @@ from ..deps import get_store
 from ..models import AnswerBox, ExamTemplate, Image, Teacher, TemplatePage
 from ..schemas import (
     AnswerBoxOut,
+    NameBox,
     TemplateCreate,
     TemplateDetail,
     TemplateListResponse,
@@ -28,12 +29,30 @@ router = APIRouter(prefix="/api/v1/templates", tags=["templates"])
 # ── serialisation ────────────────────────────────────────────────────────────
 
 
+def _name_box(template: ExamTemplate) -> NameBox | None:
+    if template.name_page_index is None or template.name_x is None:
+        return None
+    return NameBox(page_index=template.name_page_index, x=template.name_x, y=template.name_y,
+                   w=template.name_w, h=template.name_h)
+
+
+def _set_name_box(template: ExamTemplate, box: NameBox | None) -> None:
+    template.name_page_index = box.page_index if box else None
+    template.name_x = box.x if box else None
+    template.name_y = box.y if box else None
+    template.name_w = box.w if box else None
+    template.name_h = box.h if box else None
+
+
 def _summary(template: ExamTemplate) -> TemplateSummary:
     return TemplateSummary(
         id=template.id,
         exam_name=template.exam_name,
         grade=template.grade,
         subject=template.subject,
+        unit=template.unit,
+        option_count=template.option_count,
+        name_box=_name_box(template),
         annotation_count=template.annotation_count,
         page_count=len(template.pages),
         revision=template.revision,
@@ -228,6 +247,14 @@ def update_template(
         template.grade = payload.grade
     if payload.subject is not None:
         template.subject = payload.subject
+    if "unit" in payload.model_fields_set:
+        template.unit = payload.unit
+    if payload.option_count is not None:
+        template.option_count = payload.option_count
+    # Present-and-null clears it; absent leaves it. The phone's editor does not
+    # know this field exists, and its saves must not wipe it.
+    if "name_box" in payload.model_fields_set:
+        _set_name_box(template, payload.name_box)
     if payload.pages is not None:
         _apply_pages(db, template, payload.pages)
 

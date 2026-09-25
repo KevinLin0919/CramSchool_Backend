@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .limits import LimitBodySize
-from .routers import auth, images, sessions, students, templates
+from .routers import auth, classes, exams, images, sessions, students, templates
 
 DESCRIPTION = """
 補習班自動批改系統後端。
@@ -54,6 +54,8 @@ def create_app() -> FastAPI:
     application.include_router(templates.router)
     application.include_router(sessions.router)
     application.include_router(students.router)
+    application.include_router(classes.router)
+    application.include_router(exams.router)
 
     @application.get("/health", tags=["ops"], summary="健康檢查")
     def health() -> dict:

@@ -6,13 +6,16 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
-from ..models import ExamTemplate, GradedAnswer, GradingSession, Image, Student, Teacher
+from ..grading import GRADED_TYPES, box_index, chosen, verdict_for
+from ..models import Exam, ExamTemplate, GradedAnswer, GradingSession, Image, Student, Teacher
 from ..schemas import (
     GradedAnswerOut,
     GradingSessionIn,
     GradingSessionOut,
     GradingSessionSummary,
+    SessionAssignmentIn,
 )
+from ..scope import owned_exam, teaches
 from ..security import current_teacher, require_admin
 
 router = APIRouter(prefix="/api/v1/grading-sessions", tags=["grading"])
@@ -24,7 +27,8 @@ router = APIRouter(prefix="/api/v1/grading-sessions", tags=["grading"])
 RESERVED_TEACHER_MARKS = ("__blank__", "__unreadable__")
 
 
-def _out(session: GradingSession, template_name: str | None) -> GradingSessionOut:
+def _out(session: GradingSession, template_name: str | None,
+         exam_uuid: uuid.UUID | None = None) -> GradingSessionOut:
     return GradingSessionOut(
         id=session.id,
         client_uuid=session.client_uuid,
@@ -38,6 +42,9 @@ def _out(session: GradingSession, template_name: str | None) -> GradingSessionOu
         correct_count=session.correct_count,
         total_count=session.total_count,
         app_version=session.app_version,
+        exam_uuid=exam_uuid,
+        identity_source=session.identity_source,
+        name_image_id=session.name_image_id,
         answers=[GradedAnswerOut.model_validate(a) for a in session.answers],
     )
 
@@ -67,7 +74,9 @@ def upsert_session(
     template = db.get(ExamTemplate, payload.template_id)
     if template is None or template.deleted_at is not None:
         raise HTTPException(status_code=400, detail="考卷模板不存在")
-    if payload.student_id is not None and db.get(Student, payload.student_id) is None:
+    if payload.student_id is not None and (
+        db.get(Student, payload.student_id) is None or not teaches(db, teacher, payload.student_id)
+    ):
         raise HTTPException(status_code=400, detail="學生不存在")
     for image_id in filter(None, [payload.image_id, *(a.cell_image_id for a in payload.answers)]):
         if db.get(Image, image_id) is None:
@@ -94,17 +103,21 @@ def upsert_session(
                             detail="這份批改紀錄屬於其他老師")
 
     session.template_id = payload.template_id
-    session.student_id = payload.student_id
+    # Only ever set here, never cleared. This whole record is resent after
+    # every correction by apps that do not send a student at all, and taking
+    # their silence as "no student" would undo the matching each time.
+    if payload.student_id is not None:
+        session.student_id = payload.student_id
     session.teacher_id = teacher.id
     session.image_id = payload.image_id
     session.scanned_at = payload.scanned_at
     session.uploaded_at = datetime.now(UTC)
     session.app_version = payload.app_version
 
-    # Counts are derived, never trusted from the client: a phone that crashed
-    # mid-session could otherwise report a score its own answers contradict.
-    session.correct_count = sum(1 for a in payload.answers if a.verdict == "correct")
-    session.total_count = len(payload.answers)
+    # The key as it stands now, not as the phone last synced it. For the
+    # question types analysis counts, the verdict is re-decided here from what
+    # the student answered, so a key fixed since cannot leave stale verdicts.
+    index = box_index(template)
 
     previous = {a.question_no: a for a in session.answers}
     session.answers.clear()
@@ -122,12 +135,22 @@ def upsert_session(
                 if prior is not None and prior.teacher_value == answer.teacher_value
                 else datetime.now(UTC)
             )
+        answer_type, key = index.get(answer.question_no, (None, answer.expected))
+        verdict = answer.verdict
+        picked = None
+        if answer_type in GRADED_TYPES:
+            picked = chosen(answer.teacher_value, answer.recognized, answer.verdict,
+                            answer_type, template.option_count)
+            if picked is not None:
+                verdict = verdict_for(picked, key)
         session.answers.append(
             GradedAnswer(
                 question_no=answer.question_no,
-                expected=answer.expected,
+                expected=key,
                 recognized=answer.recognized,
-                verdict=answer.verdict,
+                verdict=verdict,
+                answer_type=answer_type,
+                chosen=picked,
                 confidence=answer.confidence,
                 margin=answer.margin,
                 teacher_value=answer.teacher_value,
@@ -137,9 +160,15 @@ def upsert_session(
             )
         )
 
+    # Counts are derived, never trusted from the client: a phone that crashed
+    # mid-session could otherwise report a score its own answers contradict.
+    session.correct_count = sum(1 for a in session.answers if a.verdict == "correct")
+    session.total_count = len(session.answers)
+
     db.commit()
     db.refresh(session)
-    response = _out(session, template.exam_name)
+    exam = db.get(Exam, session.exam_id) if session.exam_id else None
+    response = _out(session, template.exam_name, exam.client_uuid if exam else None)
     if created:
         return response
     return response
@@ -201,7 +230,67 @@ def get_session(
     if session is None:
         raise HTTPException(status_code=404, detail="找不到批改紀錄")
     template = db.get(ExamTemplate, session.template_id)
-    return _out(session, template.exam_name if template else None)
+    exam = db.get(Exam, session.exam_id) if session.exam_id else None
+    return _out(session, template.exam_name if template else None,
+                exam.client_uuid if exam else None)
+
+
+@router.put("/{client_uuid}/assignment", response_model=GradingSessionOut,
+            summary="指定考試與學生")
+def assign_session(
+    client_uuid: uuid.UUID,
+    payload: SessionAssignmentIn,
+    db: Session = Depends(get_db),
+    teacher: Teacher = Depends(current_teacher),
+) -> GradingSessionOut:
+    """File a paper into its sitting, and say whose it is.
+
+    Apart from the upload on purpose: the upload is resent whole after every
+    correction, and these are decided at different moments by different
+    screens. Only the fields sent are changed; `student_id: null` unmatches.
+    """
+    session = db.execute(
+        select(GradingSession)
+        .options(selectinload(GradingSession.answers))
+        .where(GradingSession.client_uuid == client_uuid,
+               GradingSession.teacher_id == teacher.id)
+    ).scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=404, detail="找不到批改紀錄")
+    sent = payload.model_fields_set
+
+    if "exam_uuid" in sent:
+        if payload.exam_uuid is None:
+            session.exam_id = None
+        else:
+            exam = owned_exam(db, teacher, payload.exam_uuid)
+            if exam.template_id != session.template_id:
+                raise HTTPException(status_code=400, detail="這份考卷和這次考試不是同一份卷子")
+            session.exam_id = exam.id
+
+    if "student_id" in sent:
+        if payload.student_id is None:
+            session.student_id = None
+            session.identity_source = None
+            session.identified_at = None
+        else:
+            if not teaches(db, teacher, payload.student_id):
+                raise HTTPException(status_code=400, detail="這位學生不在你的名冊上")
+            session.student_id = payload.student_id
+            session.identity_source = payload.identity_source or "teacher"
+            session.identified_at = datetime.now(UTC)
+
+    if "name_image_id" in sent:
+        if payload.name_image_id is not None and db.get(Image, payload.name_image_id) is None:
+            raise HTTPException(status_code=400, detail="姓名欄影像不存在，請先上傳")
+        session.name_image_id = payload.name_image_id
+
+    db.commit()
+    db.refresh(session)
+    template = db.get(ExamTemplate, session.template_id)
+    exam = db.get(Exam, session.exam_id) if session.exam_id else None
+    return _out(session, template.exam_name if template else None,
+                exam.client_uuid if exam else None)
 
 
 @router.delete("/{client_uuid}", status_code=status.HTTP_204_NO_CONTENT, summary="刪除批改紀錄")

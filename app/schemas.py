@@ -10,7 +10,7 @@ successive `??` fallbacks when parsing detection results.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -140,10 +140,29 @@ class TemplateCreate(BaseModel):
         return pages
 
 
+class NameBox(BaseModel):
+    """Where the student writes their name, as fractions of one page."""
+
+    page_index: int = Field(ge=0)
+    x: Fraction
+    y: Fraction
+    w: Annotated[float, Field(gt=0, le=1.1)]
+    h: Annotated[float, Field(gt=0, le=1.1)]
+
+
 class TemplateUpdate(BaseModel):
+    """Only the fields present are changed.
+
+    `name_box` in particular: an edit that says nothing about it must keep it,
+    and only an explicit null removes it.
+    """
+
     exam_name: str | None = Field(default=None, min_length=1, max_length=255)
     grade: str | None = Field(default=None, max_length=20)
     subject: str | None = Field(default=None, max_length=20)
+    unit: str | None = Field(default=None, max_length=40)
+    option_count: int | None = Field(default=None, ge=2, le=10)
+    name_box: NameBox | None = None
     pages: list[TemplatePageIn] | None = None
 
 
@@ -152,6 +171,9 @@ class TemplateSummary(BaseModel):
     exam_name: str
     grade: str | None
     subject: str | None
+    unit: str | None = None
+    option_count: int = 4
+    name_box: NameBox | None = None
     annotation_count: int
     page_count: int
     revision: int
@@ -198,6 +220,8 @@ class GradedAnswerOut(ORMModel):
     corrected_at: datetime | None
     cell_image_id: int | None
     alignment_leverage: float | None
+    answer_type: str | None = None
+    chosen: str | None = None
 
 
 class GradingSessionIn(BaseModel):
@@ -230,6 +254,9 @@ class GradingSessionOut(BaseModel):
     correct_count: int
     total_count: int
     app_version: str | None
+    exam_uuid: uuid.UUID | None = None
+    identity_source: str | None = None
+    name_image_id: int | None = None
     answers: list[GradedAnswerOut]
 
 
@@ -255,3 +282,68 @@ class StudentOut(ORMModel):
     name: str
     class_name: str | None
     external_id: str | None
+
+
+# ── 班級與考試 ───────────────────────────────────────────────────────────────
+
+
+class ClassIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+
+
+class RosterStudentIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class ClassOut(BaseModel):
+    id: int
+    name: str
+    is_simulated: bool
+    students: list[StudentOut]
+
+
+class ExamIn(BaseModel):
+    class_id: int
+    template_id: int
+    # The Taipei calendar day, as the phone saw it.
+    exam_date: date
+    sitting: int = Field(default=1, ge=1, le=20)
+
+
+class ExamOut(BaseModel):
+    client_uuid: uuid.UUID
+    class_id: int
+    class_name: str
+    template_id: int
+    template_name: str
+    unit: str | None
+    exam_date: date
+    sitting: int
+    is_simulated: bool
+    paper_count: int
+    identified_count: int
+
+
+class SessionAssignmentIn(BaseModel):
+    """Which sitting and which child a paper belongs to.
+
+    Every field optional, and only the ones sent are changed — so the phone
+    can file a paper into its exam at once and name the student later.
+    """
+
+    exam_uuid: uuid.UUID | None = None
+    student_id: int | None = None
+    identity_source: Literal["teacher", "suggested"] | None = None
+    name_image_id: int | None = None
+
+
+# ── 網頁登入 ─────────────────────────────────────────────────────────────────
+
+
+class WebCodeOut(BaseModel):
+    code: str
+    expires_at: datetime
+
+
+class WebLoginIn(BaseModel):
+    code: str = Field(pattern=r"^\d{6}$")

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -35,8 +35,8 @@ def _may_read(db: Session, image_id: int, teacher: Teacher) -> bool:
     * a page of a template that still exists — answer keys are school-wide by
       design, every teacher grades against the same papers, and the master is
       the paper;
-    * an image attached to a grading session this teacher owns, either the
-      page they photographed or a crop of one cell of it.
+    * an image attached to a grading session this teacher owns: the page
+      they photographed, its name field, or a crop of one cell of it.
 
     Deliberately not "any image referenced by any session": that is the hole,
     written as a rule.
@@ -52,7 +52,8 @@ def _may_read(db: Session, image_id: int, teacher: Teacher) -> bool:
 
     own_page = db.execute(
         select(GradingSession.id)
-        .where(GradingSession.image_id == image_id,
+        .where(or_(GradingSession.image_id == image_id,
+                   GradingSession.name_image_id == image_id),
                GradingSession.teacher_id == teacher.id)
         .limit(1)
     ).first()

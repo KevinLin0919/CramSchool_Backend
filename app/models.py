@@ -18,10 +18,12 @@ time instead of inserting a duplicate.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -137,8 +139,33 @@ class ApiToken(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    # `device` for the phone, `web` for a browser signed in with a one-time
+    # code from it. Kept apart because they deserve different lifetimes: a
+    # browser on a shared school computer should not hold a month-long key.
+    kind: Mapped[str] = mapped_column(String(10), nullable=False, default="device")
 
     teacher: Mapped[Teacher] = relationship(back_populates="tokens")
+
+    __table_args__ = (CheckConstraint("kind IN ('device','web')", name="ck_token_kind"),)
+
+
+class WebLoginCode(Base):
+    """Six digits the phone shows so a browser can sign in as the same teacher.
+
+    Six digits is a small space, which is why everything else about it is
+    short: three minutes, one use, a handful of wrong guesses, and at most one
+    live code per teacher. Stored hashed like every other credential here.
+    """
+
+    __tablename__ = "web_login_codes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    teacher_id: Mapped[int] = mapped_column(ForeignKey("teachers.id", ondelete="CASCADE"))
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    created_at: Mapped[datetime] = _now()
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    failed_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class InviteCode(Base):
@@ -198,6 +225,24 @@ class ExamTemplate(Base):
     # and "數甲 L1" falls through to 其他.
     grade: Mapped[str | None] = mapped_column(String(20))
     subject: Mapped[str | None] = mapped_column(String(20))
+    # The unit this paper covers ("1-1", "1-2"…), which is what progress is
+    # tracked across. A column like grade and subject, not parsed out of the
+    # name, because names are written by people.
+    unit: Mapped[str | None] = mapped_column(String(40))
+    # How many options a multiple-choice question offers. Needed to say an
+    # option nobody chose exists at all — the answer key alone cannot, when no
+    # question's answer happens to be 4.
+    option_count: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
+
+    # Where students write their name, as a fraction of one page. On the
+    # template rather than the page because pages are rebuilt wholesale on
+    # every edit, and a name box stored there would vanish the first time a
+    # teacher fixed an answer. Null for papers without a name field.
+    name_page_index: Mapped[int | None] = mapped_column(Integer)
+    name_x: Mapped[float | None] = mapped_column(Float)
+    name_y: Mapped[float | None] = mapped_column(Float)
+    name_w: Mapped[float | None] = mapped_column(Float)
+    name_h: Mapped[float | None] = mapped_column(Float)
 
     created_by: Mapped[int | None] = mapped_column(ForeignKey("teachers.id", ondelete="SET NULL"))
     # Who last changed it, which `created_by` cannot answer.
@@ -312,6 +357,77 @@ class Student(Base):
     created_at: Mapped[datetime] = _now()
 
 
+class SchoolClass(Base):
+    """A teacher's class, and the only thing that makes a student theirs.
+
+    Students are shared rows (a child can be in two teachers' classes); what a
+    teacher may see or assign is decided by enrolment in a class they own.
+    """
+
+    __tablename__ = "classes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    teacher_id: Mapped[int] = mapped_column(ForeignKey("teachers.id", ondelete="CASCADE"),
+                                            nullable=False)
+    name: Mapped[str] = mapped_column(String(60), nullable=False)
+    # Demo data lives in the same database as the real thing, under the same
+    # teacher, so this is what keeps it apart — and what one command deletes.
+    is_simulated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = _now()
+
+    enrollments: Mapped[list[Enrollment]] = relationship(
+        back_populates="school_class", cascade="all, delete-orphan"
+    )
+
+
+class Enrollment(Base):
+    __tablename__ = "enrollments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"),
+                                          nullable=False)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"),
+                                            nullable=False)
+
+    school_class: Mapped[SchoolClass] = relationship(back_populates="enrollments")
+    student: Mapped[Student] = relationship()
+
+    __table_args__ = (UniqueConstraint("class_id", "student_id", name="uq_enrollment"),)
+
+
+class Exam(Base):
+    """One sitting: a class, a paper, a day. What the app calls a stack.
+
+    Keyed by a UUID the phone mints, like a grading session, so a stack can be
+    started and filled with no network at all. The date is the Taipei calendar
+    day the phone saw, not a UTC timestamp: a paper graded at 7am belongs to
+    today, not to yesterday.
+    """
+
+    __tablename__ = "exams"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_uuid: Mapped[uuid.UUID] = mapped_column(Uuid, unique=True, nullable=False)
+    teacher_id: Mapped[int] = mapped_column(ForeignKey("teachers.id", ondelete="CASCADE"),
+                                            nullable=False)
+    class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"),
+                                          nullable=False)
+    template_id: Mapped[int] = mapped_column(ForeignKey("exam_templates.id"), nullable=False)
+    exam_date: Mapped[date] = mapped_column(Date, nullable=False)
+    # A second sitting of the same paper on the same day — a retake — is a
+    # separate exam, not more papers on the first one.
+    sitting: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = _now()
+
+    school_class: Mapped[SchoolClass] = relationship()
+    template: Mapped[ExamTemplate] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("teacher_id", "class_id", "template_id", "exam_date", "sitting",
+                         name="uq_exam_sitting"),
+    )
+
+
 class GradingSession(Base):
     """One scanned paper.
 
@@ -338,6 +454,17 @@ class GradingSession(Base):
     correct_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     app_version: Mapped[str | None] = mapped_column(String(40))
+
+    # Which sitting and which child. Set through their own endpoint and never
+    # by the upload PUT: the upload is resent in full after every correction,
+    # and an app that does not know these fields would otherwise erase them.
+    exam_id: Mapped[int | None] = mapped_column(ForeignKey("exams.id", ondelete="SET NULL"))
+    # How the student was decided: `teacher` (picked from the roster) or
+    # `suggested` (a suggestion the teacher accepted). Never set without a
+    # teacher having confirmed it.
+    identity_source: Mapped[str | None] = mapped_column(String(12))
+    identified_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    name_image_id: Mapped[int | None] = mapped_column(ForeignKey("images.id"))
 
     answers: Mapped[list[GradedAnswer]] = relationship(
         back_populates="session",
@@ -388,9 +515,55 @@ class GradedAnswer(Base):
     corrected_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     cell_image_id: Mapped[int | None] = mapped_column(ForeignKey("images.id"))
 
+    # Snapshots taken on the server at upload, so analysis never has to ask a
+    # template that may have changed since. `chosen` is what the student
+    # answered in canonical form (the teacher's reading if there is one), or
+    # null when nothing usable was read. See `app/grading.py`.
+    answer_type: Mapped[str | None] = mapped_column(String(16))
+    chosen: Mapped[str | None] = mapped_column(String(32))
+
     session: Mapped[GradingSession] = relationship(back_populates="answers")
 
     __table_args__ = (
         UniqueConstraint("session_id", "question_no", name="uq_answer_question_no"),
         CheckConstraint("verdict IN ('correct','wrong','unsure')", name="ck_answer_verdict"),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AI
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class InsightRun(Base):
+    """One question put to the model, and everything needed to audit it.
+
+    Stored whether it succeeded or not: which tools it called and what they
+    returned is how a wrong answer gets traced, and the token counts are how
+    the monthly bill gets explained.
+    """
+
+    __tablename__ = "insight_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    teacher_id: Mapped[int | None] = mapped_column(ForeignKey("teachers.id", ondelete="SET NULL"))
+    exam_id: Mapped[int | None] = mapped_column(ForeignKey("exams.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Cache key: the same question about the same data is answered once.
+    cache_key: Mapped[str | None] = mapped_column(String(64), index=True)
+    question: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(10), nullable=False, default="pending")
+    model: Mapped[str | None] = mapped_column(String(80))
+    tool_log: Mapped[str | None] = mapped_column(Text)
+    answer: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+    cost_usd: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime] = _now()
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('pending','running','done','failed')",
+                        name="ck_insight_status"),
     )

@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import Student, Teacher
+from ..models import Enrollment, SchoolClass, Student, Teacher
 from ..schemas import StudentIn, StudentOut
 from ..security import current_teacher, require_admin
 
@@ -14,12 +14,20 @@ router = APIRouter(prefix="/api/v1/students", tags=["students"])
 @router.get("", response_model=list[StudentOut], summary="列出學生")
 def list_students(
     db: Session = Depends(get_db),
-    _: Teacher = Depends(current_teacher),
+    teacher: Teacher = Depends(current_teacher),
     search: str | None = None,
     class_name: str | None = None,
     limit: int = Query(default=500, ge=1, le=2000),
 ) -> list[Student]:
+    # A teacher's own rosters, not the school's: children's names are not a
+    # list every account should be able to page through. Admins see all.
     query = select(Student)
+    if teacher.role != "admin":
+        query = query.where(Student.id.in_(
+            select(Enrollment.student_id)
+            .join(SchoolClass, SchoolClass.id == Enrollment.class_id)
+            .where(SchoolClass.teacher_id == teacher.id)
+        ))
     if search:
         query = query.where(Student.name.ilike(f"%{search}%"))
     if class_name:

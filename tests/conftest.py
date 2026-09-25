@@ -33,11 +33,13 @@ def fresh_rate_limits():
     tests are wrong; with it, the limit is still real and gets its own test
     below rather than being discovered as everybody else's failure.
     """
-    from app.routers.auth import _auth_limit
+    from app.routers.auth import _auth_limit, _web_limit
 
     _auth_limit.reset()
+    _web_limit.reset()
     yield
     _auth_limit.reset()
+    _web_limit.reset()
 
 
 @pytest.fixture(autouse=True)
