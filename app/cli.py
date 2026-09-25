@@ -117,5 +117,40 @@ def revoke_token(token_id: int) -> None:
         typer.echo(f"已撤銷 #{token_id}（{token.teacher.name}）")
 
 
+
+
+demo_app = typer.Typer(help="示範用的模擬班級")
+app.add_typer(demo_app, name="demo")
+
+
+@demo_app.command("seed")
+def demo_seed(
+    teacher_id: int = typer.Argument(..., help="掛在哪位老師底下（demo 帳號）"),
+    template_ids: str = typer.Option(..., help="依單元順序，以逗號分隔，例如 3,4,5"),
+    class_name: str = typer.Option("四年乙班（模擬）", help="班級名稱"),
+    size: int = typer.Option(28, help="人數"),
+) -> None:
+    """Builds a clearly flagged simulated class. Remove it with `demo purge`."""
+    from .models import ExamTemplate
+    from .simulate import seed
+
+    with SessionLocal() as db:
+        if db.get(Teacher, teacher_id) is None:
+            raise typer.BadParameter("找不到教師")
+        templates = [db.get(ExamTemplate, int(t)) for t in template_ids.split(",")]
+        if any(t is None or t.deleted_at is not None for t in templates):
+            raise typer.BadParameter("有模板不存在")
+        cls = seed(db, teacher_id, templates, class_name=class_name, size=size)
+        typer.echo(f"已建立模擬班級 #{cls.id} {cls.name}：{size} 人 × {len(templates)} 次考試")
+
+
+@demo_app.command("purge")
+def demo_purge(teacher_id: int | None = typer.Option(None, help="只刪這位老師的")) -> None:
+    from .simulate import purge
+
+    with SessionLocal() as db:
+        typer.echo(f"已刪除 {purge(db, teacher_id)} 個模擬班級")
+
+
 if __name__ == "__main__":
     app()
