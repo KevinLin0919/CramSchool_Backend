@@ -1,7 +1,10 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from .config import get_settings
 from .limits import LimitBodySize
@@ -58,11 +61,49 @@ def create_app() -> FastAPI:
     application.include_router(exams.router)
     application.include_router(analytics.router)
 
+    _mount_web(application, settings)
+
     @application.get("/health", tags=["ops"], summary="健康檢查")
     def health() -> dict:
         return {"status": "ok"}
 
     return application
+
+
+def _mount_web(application: FastAPI, settings) -> None:
+    """The class report pages, same-origin with the API they read.
+
+    Same origin is the point: the browser's bearer token is never offered to
+    another host, and there is no CORS to get wrong. The headers are strict
+    because this page holds a credential — no framing, no scripts from
+    anywhere but here, and index.html never cached so a deploy is seen at once.
+    """
+    dist = Path(settings.web_dist)
+    if not (dist / "index.html").is_file():
+        return
+
+    application.mount("/web", StaticFiles(directory=dist, html=True), name="web")
+
+    @application.get("/", include_in_schema=False)
+    def root() -> RedirectResponse:
+        return RedirectResponse("/web/")
+
+    @application.middleware("http")
+    async def web_headers(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/web"):
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
+                "script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+            )
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["Referrer-Policy"] = "no-referrer"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            if "/assets/" in request.url.path:
+                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            else:
+                response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 app = create_app()

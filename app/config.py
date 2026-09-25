@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     # contains every path — but publishing the map costs nothing to withhold.
     enable_docs: bool = False
 
+    # The built web report (web/dist), served under /web when present. The
+    # image puts it here; a bare checkout has none, and the API runs without.
+    web_dist: str = "/srv/web_dist"
+
     # ── 對外開放端點的速率限制 ──────────────────────────────────────────
     # Only two endpoints accept a request without a token, and both of them do
     # real work per call. These numbers are generous by design: redeeming an

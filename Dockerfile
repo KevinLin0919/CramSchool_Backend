@@ -1,3 +1,12 @@
+# The class report pages. Built here so the image is the one thing deployed:
+# no separate web host, and the page and the API it reads always match.
+FROM node:22-alpine AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY web/ ./
+RUN npm run build
+
 FROM python:3.13-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -31,6 +40,7 @@ COPY alembic ./alembic
 COPY app ./app
 COPY scripts ./scripts
 RUN uv pip install --system --no-deps .
+COPY --from=web /web/dist /srv/web_dist
 
 # Runs unprivileged. The data volume is chowned in the entrypoint because its
 # ownership is decided by the host mount, not by this image.

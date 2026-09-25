@@ -10,3 +10,5 @@ __pycache__
 .ruff_cache
 *.egg-info
 tests
+web/node_modules
+web/dist
