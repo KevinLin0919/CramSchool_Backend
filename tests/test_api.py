@@ -695,24 +695,25 @@ def test_an_unreferenced_image_is_not_readable_by_anyone(client, auth, other_aut
                       headers=other_auth).status_code == 404
 
 
-def test_an_ordinary_teacher_cannot_rewrite_the_answer_key(client, auth, admin_auth,
-                                                           uploaded_image):
-    """The quiet one.
+def test_any_teacher_can_curate_templates(client, auth, other_auth, uploaded_image):
+    """Teachers keep the list in order, including templates they did not make.
 
-    A changed key breaks nothing visible; it makes every paper graded
-    afterwards wrong, for the whole class. `require_admin` existed and was
-    wired to nothing, so every teacher could do this.
+    The edit is attributed to whoever made it, and deleting is soft.
     """
     image = uploaded_image()
     template_id = make_template(client, auth, image).json()["id"]
 
-    refused = client.patch(f"/api/v1/templates/{template_id}",
-                           json={"exam_name": "改成別的"}, headers=auth)
-    assert refused.status_code == 403
-
     assert client.patch(f"/api/v1/templates/{template_id}",
-                        json={"exam_name": "主任改的"},
-                        headers=admin_auth).status_code == 200
+                        json={"exam_name": "改成別的"}, headers=other_auth).status_code == 200
+    with SessionLocal() as db:
+        editor = db.execute(
+            text("SELECT updated_by FROM exam_templates WHERE id = :i"), {"i": template_id},
+        ).scalar_one()
+    me = client.get("/api/v1/auth/me", headers=other_auth).json()["id"]
+    assert editor == me
+
+    assert client.delete(f"/api/v1/templates/{template_id}",
+                         headers=other_auth).status_code == 204
 
 
 def test_a_template_edit_records_who_made_it(client, auth, admin_auth, uploaded_image):
