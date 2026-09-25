@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import get_settings
 from .limits import LimitBodySize
-from .routers import analytics, auth, classes, exams, images, sessions, students, templates
+from .routers import ai, analytics, auth, classes, exams, images, sessions, students, templates
 
 DESCRIPTION = """
 補習班自動批改系統後端。
@@ -60,6 +60,7 @@ def create_app() -> FastAPI:
     application.include_router(classes.router)
     application.include_router(exams.router)
     application.include_router(analytics.router)
+    application.include_router(ai.router)
 
     _mount_web(application, settings)
 

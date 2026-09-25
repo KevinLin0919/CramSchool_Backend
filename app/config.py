@@ -49,6 +49,23 @@ class Settings(BaseSettings):
     # image puts it here; a bare checkout has none, and the API runs without.
     web_dist: str = "/srv/web_dist"
 
+    # AI, through OpenCode Zen. Empty key means the AI endpoints answer 503
+    # "not configured" and everything else works as before.
+    opencode_api_key: str = ""
+    opencode_base_url: str = "https://opencode.ai/zen/v1"
+    # `anthropic` for Claude (/messages), `openai` for GPT (/responses).
+    ai_model: str = "claude-sonnet-5"
+    ai_api_style: str = "anthropic"
+    # USD per million tokens, for the budget and the log. Upper bounds.
+    ai_price_in: float = 4.0
+    ai_price_out: float = 15.0
+    ai_daily_budget_usd: float = 3.0
+    ai_max_concurrent: int = 2
+    ai_timeout_seconds: float = 60.0
+    # Off by default: it sends a child's handwritten name to a third party.
+    # QAT turns it on for role-played students.
+    ai_name_suggestions: bool = False
+
     # ── 對外開放端點的速率限制 ──────────────────────────────────────────
     # Only two endpoints accept a request without a token, and both of them do
     # real work per call. These numbers are generous by design: redeeming an

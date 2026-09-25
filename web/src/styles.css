@@ -48,8 +48,8 @@ h1 { font-size: 24px; font-weight: 900; margin: 2px 0 4px; text-wrap: balance; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
 .card h2 { font-size: 14px; margin: 0 0 12px; color: var(--ink2); display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .card h2 span { font-weight: 400; font-size: 12px; color: var(--ink3); }
-.grid2 { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 14px; }
-.stack { display: grid; gap: 14px; }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.stack { display: grid; gap: 14px; align-content: start; }
 table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line2); }
 th { font-size: 11.5px; color: var(--ink3); font-weight: 700; }
@@ -62,11 +62,11 @@ tr.link:hover td { background: var(--sunk); }
 .row .t { font-weight: 700; font-size: 15px; }
 .row .m { color: var(--ink3); font-size: 13px; }
 .grow { flex: 1; min-width: 0; }
-.opt { display: grid; grid-template-columns: 30px 1fr 64px; align-items: center; gap: 10px; padding: 5px 6px; border-radius: 7px; border: 0; background: none; width: 100%; color: inherit; text-align: left; }
+.opt { display: grid; grid-template-columns: 30px 1fr 96px; align-items: center; gap: 10px; padding: 5px 6px; border-radius: 7px; border: 0; background: none; width: 100%; color: inherit; text-align: left; }
 .opt:hover { background: var(--sunk); }
 .opt.sel { background: var(--brand-s); }
 .opt b { font-size: 15px; text-align: center; font-variant-numeric: tabular-nums; }
-.opt em { font-style: normal; text-align: right; color: var(--ink2); font-variant-numeric: tabular-nums; font-size: 13px; }
+.opt em { font-style: normal; text-align: right; white-space: nowrap; color: var(--ink2); font-variant-numeric: tabular-nums; font-size: 13px; }
 .bar { height: 18px; border-radius: 4px; background: var(--line2); position: relative; overflow: hidden; }
 .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--ink4); }
 .bar i.key { background: var(--ok); }
@@ -84,6 +84,7 @@ tr.link:hover td { background: var(--sunk); }
 .legend { display: flex; gap: 14px; font-size: 11.5px; color: var(--ink3); margin-top: 8px; }
 .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
 svg text { fill: var(--ink3); font-size: 10px; }
+.card svg { display: block; max-height: 240px; margin: 0 auto; }
 .empty { color: var(--ink3); padding: 30px; text-align: center; }
 @media (max-width: 900px) {
   .shell { grid-template-columns: 1fr; }
@@ -91,3 +92,11 @@ svg text { fill: var(--ink3); font-size: 10px; }
   .grid2 { grid-template-columns: 1fr; }
   .main { padding: 20px 16px 60px; }
 }
+
+.ghost { border: 1.5px solid var(--brand); color: var(--brand); background: none; border-radius: 9px; padding: 7px 14px; font-weight: 700; }
+.ai p { margin: 8px 0; }
+.ai ul { margin: 6px 0 0; padding-left: 1.2em; }
+.unverified { text-decoration: underline dotted var(--warn); }
+.uv { font-size: 10px; color: var(--warn); margin-left: 2px; }
+.askrow { display: flex; gap: 8px; margin-top: 14px; }
+.askrow input { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 9px; border: 1.5px solid var(--line); background: var(--sunk); color: var(--ink); font: inherit; }

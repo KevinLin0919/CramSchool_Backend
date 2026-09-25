@@ -140,6 +140,17 @@ export type Profile = {
   results: { exam_uuid: string; unit: string | null; template_name: string; exam_date: string; correct: number; total: number; pending: number; choice: [number, number]; mark: [number, number]; wrong: { question_no: number; chosen: string; key: string }[] }[];
 };
 
+export type Sentence = { text: string; verified: boolean };
+export type AiRun = {
+  id: number;
+  kind: string;
+  status: "pending" | "running" | "done" | "failed";
+  error: string | null;
+  answer: any;
+  model: string | null;
+  cost_usd: number | null;
+};
+
 export const api = {
   me: () => request<Me>("/api/v1/auth/me"),
   exams: () => request<Exam[]>("/api/v1/exams"),
@@ -147,4 +158,20 @@ export const api = {
   itemStudents: (uuid: string, q: number) => request<ItemStudents>(`/api/v1/exams/${uuid}/items/${q}/students`),
   trend: (classId: number) => request<Trend>(`/api/v1/classes/${classId}/trend`),
   profile: (studentId: number) => request<Profile>(`/api/v1/students/${studentId}/profile`),
+  aiStatus: () => request<{ configured: boolean; model: string }>("/api/v1/ai/status"),
+  explain: (uuid: string, q: number) => request<AiRun>(`/api/v1/ai/exams/${uuid}/items/${q}/explain`, { method: "POST" }),
+  summary: (uuid: string) => request<AiRun>(`/api/v1/ai/exams/${uuid}/summary`, { method: "POST" }),
+  ask: (uuid: string, question: string) => request<AiRun>(`/api/v1/ai/exams/${uuid}/ask`, { method: "POST", body: JSON.stringify({ question }) }),
+  run: (id: number) => request<AiRun>(`/api/v1/ai/runs/${id}`),
 };
+
+/** Polls a run until it settles. The model can take tens of seconds. */
+export async function settle(run: AiRun, onTick?: (r: AiRun) => void): Promise<AiRun> {
+  let current = run;
+  for (let i = 0; i < 90 && (current.status === "pending" || current.status === "running"); i++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    current = await api.run(current.id);
+    onTick?.(current);
+  }
+  return current;
+}

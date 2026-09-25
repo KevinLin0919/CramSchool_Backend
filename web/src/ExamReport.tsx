@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, ItemStat, ItemStudents, Report } from "./api";
 import { go } from "./App";
 import { Histogram, ItemBars } from "./charts";
-import AiPanel from "./AiPanel";
+import AiPanel, { ExamAi } from "./AiPanel";
 
 const FLAG_TEXT: Record<string, string> = {
   unanimous_wrong: "全部作答的人選了同一個錯的答案，先確認標準答案",
@@ -99,6 +99,7 @@ export default function ExamReport({ uuid }: { uuid: string }) {
         <div className="stack">
           {item && <ItemDetail uuid={uuid} item={item} small={small} />}
           {item && <AiPanel examUuid={uuid} item={item} />}
+          <ExamAi examUuid={uuid} />
         </div>
       </div>
     </>

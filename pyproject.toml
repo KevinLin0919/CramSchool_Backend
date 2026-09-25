@@ -14,6 +14,8 @@ requires-python = ">=3.11"
 # dependabot.yml` is the other half, and neither is worth having alone.
 dependencies = [
     "fastapi==0.141.1",
+    # Calls to the AI provider. Also what the test client runs on.
+    "httpx==0.28.1",
     "uvicorn[standard]==0.53.0",
     "sqlalchemy==2.0.54",
     "alembic==1.20.0",

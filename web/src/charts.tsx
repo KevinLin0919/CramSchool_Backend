@@ -74,7 +74,7 @@ export function ItemBars({ items, selected, onSelect }: { items: ItemBar[]; sele
 
 export function RateColumns({ rows }: { rows: { label: string; values: (number | null)[] }[] }) {
   const colors = ["var(--brand)", "var(--brand-m)", "var(--mark)"];
-  const w = 560, h = 150, pad = 26;
+  const w = 560, h = 150, pad = 40;
   const gw = (w - pad * 2) / Math.max(1, rows.length);
   const bw = Math.min(26, (gw - 16) / 3);
   return (

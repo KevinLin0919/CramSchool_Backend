@@ -120,3 +120,16 @@ def uploaded_image(client, auth, make_png):
         return response.json()
 
     return _upload
+
+
+@pytest.fixture(autouse=True)
+def no_real_ai(monkeypatch):
+    """No test may reach a real model: any HTTP from the AI layer fails loudly."""
+    import httpx
+
+    def refuse(self, *args, **kwargs):
+        raise AssertionError("a test tried to call the real AI service")
+
+    # The real network transport only: the test client and MockTransport
+    # bring transports of their own and keep working.
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", refuse)
