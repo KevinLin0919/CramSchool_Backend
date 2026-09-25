@@ -7,6 +7,7 @@ backups/
 
 # 機密
 .env
+.env.qat
 
 # Python
 __pycache__/

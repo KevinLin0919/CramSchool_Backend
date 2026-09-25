@@ -1,0 +1,74 @@
+# QAT：比賽與測試用的第二套環境，跟正式環境跑在同一台主機上。
+#
+#   docker compose -p cramqat -f docker-compose.qat.yml --env-file .env.qat up -d --build
+#
+# 跟正式環境共用的只有這台機器。容器名稱、網路、資料庫 volume、埠口全部
+# 分開：這裡的資料是模擬班級與測試紙本，隨時可以整個丟掉重建，正式資料
+# 一個欄位都碰不到。
+#
+# 對外：tailscale funnel --bg --https=8443 127.0.0.1:8086
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: cramqat_db
+    restart: always
+    environment:
+      POSTGRES_DB: cramqat
+      POSTGRES_USER: cram
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?請在 .env.qat 設定 POSTGRES_PASSWORD}
+    volumes:
+      - qat_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cram -d cramqat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks: [qat_net]
+
+  api:
+    build: .
+    image: cramqat_api
+    container_name: cramqat_api
+    restart: always
+    ports:
+      # Loopback only; Funnel on :8443 is the one way in.
+      - "127.0.0.1:8086:8085"
+    environment:
+      DATABASE_URL: postgresql+psycopg://cram:${POSTGRES_PASSWORD}@db:5432/cramqat
+      DATA_DIR: /data
+      # This network's gateway, which is what Funnel traffic appears to come
+      # from once Docker's proxy has forwarded it. See the pinned subnet below.
+      TRUSTED_PROXIES: '["172.31.241.1"]'
+      ENABLE_DOCS: ${ENABLE_DOCS:-false}
+      MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID:-}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_AUTO_PROVISION: ${MICROSOFT_AUTO_PROVISION:-false}
+      MICROSOFT_TOKEN_DAYS: ${MICROSOFT_TOKEN_DAYS:-30}
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
+      OPENCODE_BASE_URL: ${OPENCODE_BASE_URL:-https://opencode.ai/zen/v1}
+      AI_DAILY_BUDGET_USD: ${AI_DAILY_BUDGET_USD:-3}
+    mem_limit: 1g
+    volumes:
+      - qat_data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks: [qat_net]
+
+networks:
+  qat_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.241.0/24
+
+volumes:
+  qat_db:
+  qat_data:

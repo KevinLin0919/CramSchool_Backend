@@ -3,6 +3,7 @@
 data
 backups
 .env
+.env.qat
 __pycache__
 *.py[cod]
 .pytest_cache
