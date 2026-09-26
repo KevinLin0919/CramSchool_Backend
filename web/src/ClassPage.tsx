@@ -23,16 +23,11 @@ export default function ClassPage({ classId }: { classId: number }) {
       </div>
       <section className="card">
         <div className="title"><h2>全班答對率</h2><span>整體、選擇題、是非題</span></div>
-        <LineChart labels={labels} series={[
+        <LineChart onPoint={(i) => go(`/exam/${trend.exams[i].exam_uuid}`)} labels={labels} series={[
           { label: "是非題", color: "var(--mark)", values: trend.exams.map((e) => e.mark_rate) },
           { label: "選擇題", color: "var(--choice)", values: trend.exams.map((e) => e.choice_rate) },
           { label: "整體", color: "#16211b", values: trend.exams.map((e) => e.mean_rate), emphasis: true },
         ]} height={240} />
-        <div className="legend">
-          <span><i className="line" style={{ background: "#16211b" }} />整體</span>
-          <span><i className="line" style={{ background: "var(--choice)" }} />選擇題</span>
-          <span><i className="line" style={{ background: "var(--mark)" }} />是非題</span>
-        </div>
       </section>
       <section className="card">
         <div className="title"><h2>學生</h2><span>各單元答對率</span></div>

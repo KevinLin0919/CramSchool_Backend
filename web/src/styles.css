@@ -7,21 +7,27 @@
   --bad: #c8412f; --bad-d: #9c3324; --bad-s: #fbe9e6; --bad-bg: #fff7f5; --bad-line: #f2d3cd;
   --warn: #8a5a12; --warn-s: #fbf0da; --warn-l: #b7791f;
   --ai-bg: #f3f9f5; --ai-line: #cfe3d6; --ai-text: #33423a;
+  --sans: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --serif: "Noto Serif TC", "Songti TC", "PMingLiU", serif;
   color-scheme: light;
-  font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", -apple-system, sans-serif;
+  font-family: var(--sans);
 }
+/* Figures in the mono face: columns of numbers line up, and it reads as a tool. */
+.num, .kpi .v, .tr .n, .optrow em, .watch em, .meta .num { font-family: var(--mono); letter-spacing: -0.01em; }
+.kpi .v small { font-family: var(--sans); }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--ground); color: var(--ink); font-size: 14px; line-height: 1.55; font-variant-numeric: tabular-nums; }
 button { font: inherit; cursor: pointer; }
 a { color: var(--brand); text-decoration: none; }
 .serif { font-family: "Noto Serif TC", "Songti TC", serif; }
-h1 { margin: 0; font-size: 30px; font-weight: 900; font-family: "Noto Serif TC", "Songti TC", "PMingLiU", serif; text-wrap: balance; }
+h1 { margin: 0; font-size: 30px; font-weight: 900; font-family: var(--serif); text-wrap: balance; }
 h2 { margin: 0; font-size: 16px; font-weight: 700; }
 .shell { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 100vh; }
 .side { background: var(--panel); border-right: 1px solid var(--line); padding: 22px 16px; display: flex; flex-direction: column; gap: 22px; position: sticky; top: 0; height: 100vh; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 6px; }
 .brand img { height: 26px; width: auto; display: block; }
-.brand b { font-family: "Noto Serif TC", serif; font-weight: 900; font-size: 19px; display: block; line-height: 1.2; }
+.brand b { font-family: var(--serif); font-weight: 900; font-size: 19px; display: block; line-height: 1.2; }
 .brand span { font-size: 11px; color: var(--ink3); letter-spacing: .08em; }
 .search { position: relative; }
 .search label { display: flex; align-items: center; gap: 8px; background: var(--sunk); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
@@ -58,7 +64,7 @@ h2 { margin: 0; font-size: 16px; font-weight: 700; }
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
 .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; }
 .kpi .l { font-size: 12px; font-weight: 700; color: var(--ink3); }
-.kpi .v { font-size: 30px; font-weight: 900; line-height: 1.15; }
+.kpi .v { font-size: 30px; font-weight: 600; line-height: 1.15; }
 .kpi .v small { font-size: 14px; font-weight: 500; color: var(--ink3); margin-left: 4px; }
 .kpi .s { font-size: 12px; color: var(--ink3); }
 .kpi .down { color: var(--bad-d); font-weight: 700; }
@@ -145,7 +151,7 @@ button.tr:hover { background: var(--soft); }
 .wrongrow b.w { color: var(--bad-d); font-size: 15px; }
 .wrongrow b.k { color: var(--brand-d); font-size: 15px; }
 .profile { display: flex; align-items: center; gap: 18px; }
-.profile .big { width: 64px; height: 64px; border-radius: 20px; background: var(--brand-s); color: var(--brand-d); display: grid; place-items: center; font-family: "Noto Serif TC", serif; font-weight: 900; font-size: 28px; }
+.profile .big { width: 64px; height: 64px; border-radius: 20px; background: var(--brand-s); color: var(--brand-d); display: grid; place-items: center; font-family: var(--serif); font-weight: 900; font-size: 28px; }
 svg text { font-family: inherit; }
 @media (max-width: 1100px) {
   .row2, .split, .row3 { grid-template-columns: 1fr; }
@@ -161,3 +167,11 @@ svg text { font-family: inherit; }
   .bars { height: 150px; gap: 3px; }
   .axis { display: none; }
 }
+
+.chart { width: 100%; }
+.chart-tip { font-family: var(--sans); font-size: 12.5px; line-height: 1.6; color: var(--ink); }
+.chart-tip b { font-family: var(--mono); }
+.chart-tip .t { font-weight: 700; margin-bottom: 2px; }
+.chart-tip .f { color: var(--bad-d); font-weight: 700; }
+.tip-dot { display: inline-block; width: 8px; height: 8px; border-radius: 99px; margin-right: 6px; }
+.filterchip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--brand-d); background: var(--brand-s); border: 0; border-radius: 99px; padding: 3px 10px; }

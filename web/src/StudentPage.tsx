@@ -51,17 +51,13 @@ export default function StudentPage({ studentId }: { studentId: number }) {
           <div className="row2">
             <section className="card">
               <div className="title"><h2>各單元答對率</h2><span>和班平均比較</span></div>
-              <LineChart
+              <LineChart onPoint={(i) => go(`/exam/${results[i].exam_uuid}`)}
                 labels={labels}
                 series={[
                   { label: "班平均", color: "var(--choice-l)", values: results.map((r) => classByExam.get(r.exam_uuid) ?? null), dashed: true, area: true },
                   { label: profile.student_name ?? "學生", color: "var(--bad)", values: results.map((r) => r.correct / r.total), emphasis: true },
                 ]}
               />
-              <div className="legend">
-                <span><i className="line" style={{ background: "var(--bad)" }} />{profile.student_name}</span>
-                <span><i className="line" style={{ background: "var(--choice-l)" }} />班平均</span>
-              </div>
             </section>
             <section className="card">
               <div className="title"><h2>{last.unit ?? "最近一次"} 錯的題目</h2><span>{last.wrong.length} 題</span></div>

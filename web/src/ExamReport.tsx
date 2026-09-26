@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, ItemStat, ItemStudents, Report } from "./api";
 import { go, label, pct } from "./App";
-import { GroupBars, Histogram, ItemBars } from "./charts";
+import { GroupBars, Histogram, ItemBars, OptionBars } from "./charts";
 import { ExamSummary, ExplainItem } from "./AiPanel";
 
 const FLAG_TEXT: Record<string, string> = {
@@ -19,6 +19,7 @@ export default function ExamReport({ uuid }: { uuid: string }) {
   const [filter, setFilter] = useState<"all" | "mark" | "choice">("all");
   const [regrading, setRegrading] = useState(false);
   const [allStudents, setAllStudents] = useState(false);
+  const [scoreFilter, setScoreFilter] = useState<number | null>(null);
 
   function load() {
     api.report(uuid).then((r) => {
@@ -26,7 +27,7 @@ export default function ExamReport({ uuid }: { uuid: string }) {
       setSelected((s) => s ?? (r.items.find(notable) ?? r.items[0])?.question_no ?? null);
     }).catch((e) => setError(e.message));
   }
-  useEffect(() => { setReport(null); setSelected(null); load(); }, [uuid]); // eslint-disable-line
+  useEffect(() => { setReport(null); setSelected(null); setScoreFilter(null); load(); }, [uuid]); // eslint-disable-line
 
   const items = useMemo(() => (report?.items ?? []).filter((i) => filter === "all" || i.answer_type === filter), [report, filter]);
   if (error) return <div className="card empty">{error}</div>;
@@ -105,7 +106,7 @@ export default function ExamReport({ uuid }: { uuid: string }) {
             </div>
           </div>
           <ItemBars
-            items={items.map((i) => ({ q: i.question_no, type: i.answer_type, rate: i.answered ? i.correct / i.answered : 0, flagged: notable(i) }))}
+            items={items.map((i) => ({ q: i.question_no, type: i.answer_type, correct: i.correct, answered: i.answered, flags: i.flags, flagged: notable(i) }))}
             selected={selected}
             onSelect={setSelected}
           />
@@ -123,7 +124,8 @@ export default function ExamReport({ uuid }: { uuid: string }) {
         <div className="col">
           <section className="card">
             <div className="title"><h2>答對題數分布</h2><span>{n} 份</span></div>
-            <Histogram data={report.distribution} total={report.total} mark={report.median} />
+            <Histogram data={report.distribution} total={report.total} median={report.median} mean={report.mean}
+              selected={scoreFilter} onSelect={(c) => { setScoreFilter(c); setAllStudents(true); }} />
           </section>
           <section className="card">
             <div className="title"><h2>需要關注</h2><span>比自己平常低 15% 以上</span></div>
@@ -137,9 +139,14 @@ export default function ExamReport({ uuid }: { uuid: string }) {
             ))}
           </section>
           <section className="card">
-            <div className="title"><h2>學生</h2><span>依答對題數</span></div>
+            <div className="title" style={{ alignItems: "center" }}>
+              <h2>學生</h2>
+              {scoreFilter !== null
+                ? <button type="button" className="filterchip" onClick={() => setScoreFilter(null)}>只看答對 {scoreFilter} 題 ✕</button>
+                : <span>依答對題數</span>}
+            </div>
             <div className="table">
-              {[...report.paper_list].sort((a, b) => b.correct - a.correct).slice(0, allStudents ? undefined : 8).map((p) => (
+              {[...report.paper_list].filter((p) => scoreFilter === null || p.correct === scoreFilter).sort((a, b) => b.correct - a.correct).slice(0, allStudents ? undefined : 8).map((p) => (
                 <button key={p.session_uuid} type="button" className="tr" disabled={!p.student_id} style={{ gridTemplateColumns: "minmax(0,1fr) 110px 60px", padding: "8px 10px" }} onClick={() => p.student_id && go(`/student/${p.student_id}`)}>
                   <span>{p.student_name ?? <span className="note">未配對</span>}</span>
                   <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="meter" style={{ width: 50 }}><i style={{ width: `${(p.correct / report.total) * 100}%`, background: "var(--choice)" }} /></span>{p.correct}/{report.total}</span>
@@ -147,7 +154,7 @@ export default function ExamReport({ uuid }: { uuid: string }) {
                 </button>
               ))}
             </div>
-            {report.paper_list.length > 8 && (
+            {scoreFilter === null && report.paper_list.length > 8 && (
               <button type="button" className="btn soft" style={{ alignSelf: "center" }} onClick={() => setAllStudents((v) => !v)}>
                 {allStudents ? "收起" : `顯示全部 ${report.paper_list.length} 位`}
               </button>
@@ -168,11 +175,9 @@ function ItemDetail({ uuid, item, small }: { uuid: string; item: ItemStat; small
     api.itemStudents(uuid, item.question_no).then(setWho).catch(() => setWho(null));
   }, [uuid, item.question_no, item.top_wrong?.option, item.key]);
 
-  const max = Math.max(1, ...Object.values(item.options));
   const flags = item.flags.filter((f) => f !== "guessable");
   const options = Object.keys(item.options);
   const lure = item.top_wrong?.option ?? null;
-  const tone = (o: string) => o === item.key ? ["var(--brand-s)", "var(--brand-d)", "var(--choice)"] : o === lure ? ["var(--bad-s)", "var(--bad-d)", "var(--bad)"] : ["var(--sunk)", "var(--ink2)", "#b9c3bd"];
   const picked = option && who ? who.groups[option] ?? [] : [];
 
   return (
@@ -195,29 +200,17 @@ function ItemDetail({ uuid, item, small }: { uuid: string; item: ItemStat; small
       {flags.includes("unanimous_wrong") && <div className="callout">作答的人全選了同一個錯誤答案，建議先確認標準答案有沒有設錯。</div>}
       <div className="split">
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <span className="caption">選項分布</span>
-          {options.map((o) => {
-            const [bg, fg, bar] = tone(o);
-            const c = item.options[o];
-            return (
-              <button key={o} type="button" className={`optrow ${option === o ? "sel" : ""}`} onClick={() => setOption(o)}>
-                <span className="chip" style={{ background: bg, color: fg }}>{label(o)}</span>
-                <span className="hbar"><i style={{ width: `${(c / max) * 100}%`, background: bar }} /></span>
-                <em><b>{c}</b> 人{small ? "" : ` · ${pct(item.answered ? c / item.answered : null)}`}</em>
-              </button>
-            );
-          })}
+          <span className="caption">選項分布 <span className="note" style={{ fontWeight: 400 }}>· 點選項看是誰選的</span></span>
+          <OptionBars counts={item.options} answerKey={item.key} lure={lure} answered={item.answered} small={small}
+            selected={option} onSelect={setOption} label={label} />
           {item.unchosen.length > 0 && <span className="note">沒有人選：{item.unchosen.map(label).join("、")}</span>}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <span className="caption">高分組 vs 低分組（各 27%）</span>
           {item.high_low ? (
             <>
-              <GroupBars options={options} high={item.high_low.high} low={item.high_low.low} label={label} />
-              <div className="legend">
-                <span><i style={{ background: "var(--brand)" }} />高分組 {item.high_low.high_n} 人</span>
-                <span><i style={{ background: "#b7c9bd" }} />低分組 {item.high_low.low_n} 人</span>
-              </div>
+              <GroupBars options={options} high={item.high_low.high} low={item.high_low.low}
+                highN={item.high_low.high_n} lowN={item.high_low.low_n} label={label} />
             </>
           ) : <span className="note">少於 10 份，不分組比較。</span>}
         </div>

@@ -85,7 +85,7 @@ export default function OverviewPage() {
         {focus && (
           <section className="card">
             <div className="title"><h2>{focus.name} · 各單元</h2><span>全班答對率</span></div>
-            <LineChart
+            <LineChart onPoint={(i) => go(`/exam/${focus.trend[i].exam_uuid}`)}
               height={300}
               labels={focus.trend.map((t) => t.unit ?? t.exam_date)}
               series={[
@@ -94,11 +94,6 @@ export default function OverviewPage() {
                 { label: "整體", color: "#16211b", values: focus.trend.map((t) => t.mean_rate), emphasis: true },
               ]}
             />
-            <div className="legend">
-              <span><i className="line" style={{ background: "#16211b" }} />整體</span>
-              <span><i className="line" style={{ background: "var(--choice)" }} />選擇題</span>
-              <span><i className="line" style={{ background: "var(--mark)" }} />是非題</span>
-            </div>
           </section>
         )}
       </div>
