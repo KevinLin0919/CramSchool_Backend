@@ -12,7 +12,7 @@ from ..ai.provider import Image as AIImage
 from ..config import Settings, get_settings
 from ..db import get_db
 from ..models import InsightRun, Teacher
-from ..scope import owned_class, owned_exam
+from ..scope import owned_class, owned_exam, teaches
 from ..security import current_teacher
 
 router = APIRouter(prefix="/api/v1/ai", tags=["ai"])
@@ -53,6 +53,17 @@ def ask(exam_uuid: uuid.UUID, payload: AskIn, background: BackgroundTasks,
     question = payload.question.strip()
     run = service.start(db, teacher.id, exam, "ask", question,
                         service.ask(exam.id, teacher.id, question), background.add_task)
+    return service.run_out(run)
+
+
+@router.post("/students/{student_id}/parent-note", summary="給家長的一段話（草稿）")
+def parent_note(student_id: int, background: BackgroundTasks, db: Session = Depends(get_db),
+                teacher: Teacher = Depends(current_teacher)) -> dict:
+    if not teaches(db, teacher, student_id):
+        raise HTTPException(status_code=404, detail="找不到學生")
+    run = service.start(db, teacher.id, None, "parent_note", str(student_id),
+                        service.parent_note(teacher.id, student_id), background.add_task,
+                        version=service.student_version(db, teacher.id, student_id))
     return service.run_out(run)
 
 

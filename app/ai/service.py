@@ -86,14 +86,15 @@ def spent_today(db: Session) -> float:
                             .where(InsightRun.created_at >= since)).scalar() or 0.0)
 
 
-def start(db: Session, teacher_id: int, exam: Exam, kind: str, question: str | None,
+def start(db: Session, teacher_id: int, exam: Exam | None, kind: str, question: str | None,
           work: Callable[[Provider, Session], dict], schedule: Callable,
-          settings: Settings | None = None) -> InsightRun:
+          settings: Settings | None = None, version: str | None = None) -> InsightRun:
     settings = settings or get_settings()
     if not settings.opencode_api_key:
         raise HTTPException(status_code=503, detail="尚未設定 AI（伺服器沒有 OpenCode API key）")
     key = hashlib.sha256("|".join([
-        kind, str(exam.id), question or "", settings.ai_model, _data_version(db, exam),
+        kind, str(exam.id if exam else ""), question or "", settings.ai_model,
+        version if version is not None else _data_version(db, exam),
     ]).encode()).hexdigest()
     cached = db.execute(select(InsightRun).where(
         InsightRun.cache_key == key, InsightRun.teacher_id == teacher_id,
@@ -103,7 +104,8 @@ def start(db: Session, teacher_id: int, exam: Exam, kind: str, question: str | N
         return cached
     if spent_today(db) >= settings.ai_daily_budget_usd:
         raise HTTPException(status_code=429, detail="今天的 AI 額度已經用完，明天再試")
-    run = InsightRun(teacher_id=teacher_id, exam_id=exam.id, kind=kind, cache_key=key,
+    run = InsightRun(teacher_id=teacher_id, exam_id=exam.id if exam else None, kind=kind,
+                     cache_key=key,
                      question=question, status="pending", model=settings.ai_model)
     db.add(run)
     db.commit()
@@ -405,4 +407,51 @@ def ask(exam_id: int, teacher_id: int, question: str):
                 turns.append({"role": "user", "text": "這是剛才要求的題目區塊。",
                               "images": pending_images})
         raise AIError("AI 查了太多次資料仍沒有結論，請換個問法")
+    return work
+
+
+# ── feature: a note for the parents ──────────────────────────────────────────
+
+
+def student_version(db: Session, teacher_id: int, student_id: int) -> str:
+    latest = db.execute(select(func.max(GradingSession.uploaded_at)).where(
+        GradingSession.student_id == student_id,
+        GradingSession.teacher_id == teacher_id)).scalar()
+    return f"student|{student_id}|{latest}"
+
+
+def parent_note(teacher_id: int, student_id: int):
+    """A short, kind paragraph a teacher can edit and send home.
+
+    The model never sees the child's name: it writes 「孩子」, and the name is
+    put back into the first sentence here.
+    """
+    def work(provider: Provider, db: Session) -> dict:
+        from ..models import Teacher  # noqa: PLC0415
+        teacher = db.get(Teacher, teacher_id)
+        profile = student_profile(db, teacher, student_id)
+        facts = Facts()
+        lines = []
+        for r in profile["results"]:
+            label = r["unit"] or r["template_name"]
+            f1 = facts.add(f"{label} 答對題數", r["correct"])
+            f2 = facts.add(f"{label} 總題數", r["total"])
+            ch, mk = r["choice"], r["mark"]
+            lines.append(f"{label}：答對 {{{f1}}}/{{{f2}}}，"
+                         f"選擇題 {ch[0]}/{ch[1]}，是非題 {mk[0]}/{mk[1]}")
+        prompt = (
+            "以下是一位國小學生幾次社會考試的結果。請以補習班老師的口吻，寫一段給家長的話，"
+            "三到四句：先說做得好的地方，再說需要加強的觀念，最後給一個在家可以做的具體建議。"
+            "用「孩子」稱呼學生，不要寫名字，不要寫分數或題數。\n"
+            + "\n".join(lines) +
+            "\n回答 JSON：{\"note\": \"...\"}"
+        )
+        reply = provider.complete(SYSTEM_BASE, [{"role": "user", "text": prompt}], max_tokens=600)
+        data = _parse_json(reply.text)
+        name = profile["student_name"] or ""
+        sentences = [{"text": s.text.replace("孩子", name or "孩子", 1) if i == 0 else s.text,
+                      "verified": s.verified}
+                     for i, s in enumerate(ground(str(data.get("note", "")), facts))]
+        return {"answer": {"note": sentences}, "input_tokens": reply.input_tokens,
+                "output_tokens": reply.output_tokens}
     return work

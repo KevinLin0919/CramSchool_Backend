@@ -131,3 +131,23 @@ def test_the_simulated_class_is_seeded_realistically_and_purged_whole(client, au
         assert db.query(SchoolClass).count() == 0
         assert db.query(GradingSession).count() == 0
         assert db.query(Student).count() == 0
+
+
+def test_overview_previous_unit_and_watch_list(client, auth, uploaded_image):
+    templates = [_choice_template(client, auth, uploaded_image(colour=(i, i, i)))
+                 for i in range(3)]
+    teacher_id = client.get("/api/v1/auth/me", headers=auth).json()["id"]
+    with SessionLocal() as db:
+        seed(db, teacher_id, [db.get(ExamTemplate, t["id"]) for t in templates], size=28)
+    exams = client.get("/api/v1/exams", headers=auth).json()
+    latest = exams[0]["client_uuid"]
+    report = client.get(f"/api/v1/exams/{latest}/report", headers=auth).json()
+    assert report["previous"] is not None and 0 <= report["previous"]["mean_rate"] <= 1
+    for w in report["watch"]:
+        assert w["drop"] >= 0.15 and w["usual_rate"] > w["rate"]
+    first = exams[-1]["client_uuid"]
+    assert client.get(f"/api/v1/exams/{first}/report", headers=auth).json()["previous"] is None
+
+    overview = client.get("/api/v1/overview", headers=auth).json()
+    assert len(overview["recent"]) == 3 and overview["classes"][0]["students"] == 28
+    assert len(overview["classes"][0]["trend"]) == 3

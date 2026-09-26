@@ -16,7 +16,15 @@ from sqlalchemy.orm import Session, selectinload
 from ..analytics import Paper, exam_report, graded_items, options_for, paper_score
 from ..db import get_db
 from ..grading import BLANK, box_index
-from ..models import Exam, ExamTemplate, GradingSession, Student, Teacher, TemplatePage
+from ..models import (
+    Exam,
+    ExamTemplate,
+    GradingSession,
+    SchoolClass,
+    Student,
+    Teacher,
+    TemplatePage,
+)
 from ..scope import owned_class, owned_exam, teaches
 from ..security import current_teacher
 
@@ -61,6 +69,8 @@ def build_report(db: Session, exam: Exam) -> dict:
         "template_id": template.id, "template_name": template.exam_name,
         "unit": template.unit, "exam_date": exam.exam_date.isoformat(), "sitting": exam.sitting,
     }
+    report["previous"] = _previous(db, exam)
+    report["watch"] = _watch(db, exam, sessions, scores, len(items))
     report["paper_list"] = [
         {"session_uuid": str(s.client_uuid), "student_id": s.student_id,
          "student_name": names.get(s.student_id), "correct": scores[s.id]["correct"],
@@ -68,6 +78,97 @@ def build_report(db: Session, exam: Exam) -> dict:
         for s in sessions
     ]
     return report
+
+
+def _earlier_exams(db: Session, exam: Exam) -> list[Exam]:
+    return list(db.execute(
+        select(Exam).where(Exam.class_id == exam.class_id, Exam.id != exam.id,
+                           Exam.exam_date <= exam.exam_date)
+        .order_by(Exam.exam_date, Exam.id)
+    ).scalars())
+
+
+def _previous(db: Session, exam: Exam) -> dict | None:
+    """The class's sitting before this one, for the change shown beside a figure."""
+    earlier = [e for e in _earlier_exams(db, exam)
+               if (e.exam_date, e.id) < (exam.exam_date, exam.id)]
+    if not earlier:
+        return None
+    prev = earlier[-1]
+    _, items, _, papers = load_exam(db, prev)
+    if not papers or not items:
+        return None
+    rate = sum(paper_score(p, items)["correct"] for p in papers) / (len(items) * len(papers))
+    return {"exam_uuid": str(prev.client_uuid), "unit": prev.template.unit,
+            "template_name": prev.template.exam_name, "mean_rate": round(rate, 3)}
+
+
+# A student this far below their own usual is worth a look, whatever the class did.
+WATCH_DROP = 0.15
+
+
+def _watch(db: Session, exam: Exam, sessions, scores: dict, total: int) -> list[dict]:
+    """Students well below their own earlier results, largest drop first.
+
+    Compared with themselves rather than the class: a weak student having an
+    ordinary day is not news, a strong one falling is.
+    """
+    if not total:
+        return []
+    history: dict[int, list[float]] = {}
+    for prev in _earlier_exams(db, exam):
+        if (prev.exam_date, prev.id) >= (exam.exam_date, exam.id):
+            continue
+        _, items, _, papers = load_exam(db, prev)
+        for paper in papers:
+            if paper.student_id is not None and items:
+                history.setdefault(paper.student_id, []).append(
+                    paper_score(paper, items)["correct"] / len(items))
+    names = _names(db, [s.student_id for s in sessions])
+    out = []
+    for s in sessions:
+        past = history.get(s.student_id or -1)
+        if not past:
+            continue
+        usual = sum(past) / len(past)
+        now = scores[s.id]["correct"] / total
+        if usual - now >= WATCH_DROP:
+            out.append({"student_id": s.student_id, "student_name": names.get(s.student_id),
+                        "usual_rate": round(usual, 3), "rate": round(now, 3),
+                        "drop": round(usual - now, 3)})
+    return sorted(out, key=lambda w: -w["drop"])
+
+
+@router.get("/overview", summary="首頁總覽")
+def overview(db: Session = Depends(get_db), teacher: Teacher = Depends(current_teacher)) -> dict:
+    """Classes, recent sittings and what is waiting on the teacher, in one call."""
+    exams = db.execute(select(Exam).where(Exam.teacher_id == teacher.id)
+                       .order_by(Exam.exam_date.desc(), Exam.id.desc())).scalars().all()
+    recent, todo = [], []
+    for exam in exams[:12]:
+        report = build_report(db, exam)
+        flagged = [i["question_no"] for i in report["items"]
+                   if {"unanimous_wrong", "popular_distractor"} & set(i["flags"])]
+        unmatched = report["papers"] - report["identified"]
+        recent.append({**report["exam"], "papers": report["papers"], "mean": report["mean"],
+                       "total": report["total"], "unmatched": unmatched, "flagged": flagged,
+                       "pending_cells": report["pending_cells"]})
+        if flagged:
+            where = f"{report['exam']['class_name']}「{report['exam']['template_name']}」"
+            todo.append({"kind": "key", "exam_uuid": str(exam.client_uuid),
+                         "text": f"{where}第 {flagged[0]} 題多數人選同一個錯誤答案，請確認答案"})
+        if unmatched:
+            todo.append({"kind": "match", "exam_uuid": str(exam.client_uuid),
+                         "text": f"{report['exam']['class_name']} 有 {unmatched} 份考卷未配對學生"})
+    classes = []
+    for cls in db.execute(select(SchoolClass).where(SchoolClass.teacher_id == teacher.id)
+                          .order_by(SchoolClass.is_simulated, SchoolClass.name)).scalars():
+        trend = class_trend(db, cls.id)
+        classes.append({"id": cls.id, "name": cls.name, "is_simulated": cls.is_simulated,
+                        "students": len(cls.enrollments), "trend": trend["exams"]})
+    papers_7d = sum(r["papers"] for r in recent)
+    return {"teacher": teacher.name, "classes": classes, "recent": recent,
+            "todo": todo[:6], "papers_recent": papers_7d, "exams_recent": len(recent)}
 
 
 @router.get("/exams/{client_uuid}/report", summary="考試報告")

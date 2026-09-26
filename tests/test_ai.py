@@ -186,3 +186,14 @@ def test_question_strip_is_cut_from_the_master(client, auth, uploaded_image):
     assert images is not None and images[0][:4] == b"\x89PNG"
     assert get_store() is not None
     assert uuid  # imported for fixtures above
+
+
+def test_parent_note_names_the_child_only_on_the_page(client, auth, uploaded_image, ai_on):
+    _simulated_exam(client, auth, uploaded_image)
+    student = client.get("/api/v1/students", headers=auth).json()[0]
+    FakeProvider.script = [Reply(json.dumps({"note": "孩子這幾次是非題很穩定。選擇題要多練習。"}))]
+    run = client.post(f"/api/v1/ai/students/{student['id']}/parent-note", headers=auth).json()
+    done = client.get(f"/api/v1/ai/runs/{run['id']}", headers=auth).json()
+    assert done["status"] == "done", done
+    assert done["answer"]["note"][0]["text"].startswith(student["name"])
+    assert not any(student["name"] in prompt for prompt in FakeProvider.prompts)

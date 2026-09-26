@@ -120,6 +120,8 @@ export type Report = {
   choice: { correct: number; total: number };
   mark: { correct: number; total: number };
   items: ItemStat[];
+  previous: { exam_uuid: string; unit: string | null; template_name: string; mean_rate: number } | null;
+  watch: { student_id: number; student_name: string | null; usual_rate: number; rate: number; drop: number }[];
   paper_list: { session_uuid: string; student_id: number | null; student_name: string | null; correct: number; pending: number }[];
 };
 
@@ -151,8 +153,22 @@ export type AiRun = {
   cost_usd: number | null;
 };
 
+export type Overview = {
+  teacher: string;
+  classes: { id: number; name: string; is_simulated: boolean; students: number; trend: Trend["exams"] }[];
+  recent: (Report["exam"] & { papers: number; mean: number | null; total: number; unmatched: number; flagged: number[]; pending_cells: number })[];
+  todo: { kind: string; exam_uuid: string; text: string }[];
+  papers_recent: number;
+  exams_recent: number;
+};
+export type ClassRoster = { id: number; name: string; is_simulated: boolean; students: { id: number; name: string }[] };
+
 export const api = {
   me: () => request<Me>("/api/v1/auth/me"),
+  overview: () => request<Overview>("/api/v1/overview"),
+  classes: () => request<ClassRoster[]>("/api/v1/classes"),
+  regrade: (uuid: string) => request<Exam>(`/api/v1/exams/${uuid}/regrade`, { method: "POST" }),
+  parentNote: (studentId: number) => request<AiRun>(`/api/v1/ai/students/${studentId}/parent-note`, { method: "POST" }),
   exams: () => request<Exam[]>("/api/v1/exams"),
   report: (uuid: string) => request<Report>(`/api/v1/exams/${uuid}/report`),
   itemStudents: (uuid: string, q: number) => request<ItemStudents>(`/api/v1/exams/${uuid}/items/${q}/students`),

@@ -22,24 +22,16 @@ export default function Login({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="login">
-      <form className="card" onSubmit={submit}>
-        <div className="logo" style={{ fontSize: 26 }}>浮島</div>
-        <div className="sub" style={{ marginTop: 6 }}>班級報告</div>
-        <input
-          id="code"
-          className="code"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          maxLength={6}
-          placeholder="000000"
-          value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-          aria-label="登入碼"
-          autoFocus
-        />
-        <div className="err">{error}</div>
-        <button className="primary" disabled={code.length !== 6 || busy}>{busy ? "登入中…" : "登入"}</button>
-        <p className="note">在手機 App 的「設定 → 在電腦上看報告」取得 6 位數登入碼。</p>
+      <form onSubmit={submit}>
+        <img src="/web/fudao-mark.png" alt="浮島" />
+        <h1 style={{ fontSize: 26 }}>浮島</h1>
+        <span className="note">班級報告</span>
+        <label htmlFor="code" className="caption" style={{ marginTop: 14, alignSelf: "stretch" }}>登入碼</label>
+        <input id="code" className="code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000"
+          value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} autoFocus />
+        <div className="err" style={{ minHeight: 20 }}>{error}</div>
+        <button className="btn primary" disabled={code.length !== 6 || busy}>{busy ? "登入中…" : "登入"}</button>
+        <p className="note" style={{ textAlign: "center" }}>在手機 App 的「設定 → 在電腦上看報告」取得 6 位數登入碼。</p>
       </form>
     </div>
   );

@@ -1,100 +1,121 @@
-// Small SVG charts drawn to one scale each, so every label names a value the
-// chart actually reaches. No charting library: these are the only three
-// shapes the reports need.
+// Charts drawn to one scale each, so every label names a value the chart
+// reaches. Plain SVG and flex boxes: these are the only shapes the pages need.
 
-export function Histogram({ data, total }: { data: { correct: number; papers: number }[]; total: number }) {
-  const max = Math.max(1, ...data.map((d) => d.papers));
-  const w = 560, h = 150, pad = 22;
-  const bw = (w - pad * 2) / Math.max(1, data.length);
-  return (
-    <svg viewBox={`0 0 ${w} ${h + 22}`} width="100%" role="img" aria-label="答對題數分布">
-      {data.map((d, i) => {
-        const bh = ((h - 16) * d.papers) / max;
-        return (
-          <g key={d.correct}>
-            <rect x={pad + i * bw + 1} y={h - bh} width={Math.max(1, bw - 2)} height={bh} rx={2} fill="var(--brand-m)" />
-            {d.papers > 0 && (
-              <text x={pad + i * bw + bw / 2} y={h - bh - 3} textAnchor="middle">{d.papers}</text>
-            )}
-          </g>
-        );
-      })}
-      <line x1={pad} x2={w - pad} y1={h} y2={h} stroke="var(--line)" />
-      {data.map((d, i) =>
-        d.correct % 5 === 0 || d.correct === total ? (
-          <text key={d.correct} x={pad + i * bw + bw / 2} y={h + 14} textAnchor="middle">{d.correct}</text>
-        ) : null,
-      )}
-    </svg>
-  );
-}
-
-export type ItemBar = { q: number; type: "choice" | "mark"; correct: number; answered: number; flagged: boolean };
+export type ItemBar = { q: number; type: "choice" | "mark"; rate: number; flagged: boolean };
 
 export function ItemBars({ items, selected, onSelect }: { items: ItemBar[]; selected: number | null; onSelect: (q: number) => void }) {
-  const w = 560, h = 150, pad = 18;
-  const bw = (w - pad * 2) / Math.max(1, items.length);
+  const H = 206;
+  const showBase = items.some((i) => i.type === "mark");
   return (
-    <svg viewBox={`0 0 ${w} ${h + 22}`} width="100%" role="img" aria-label="每題答對比例">
-      {[0.5, 1].map((r) => (
+    <>
+      <div className="bars">
+        {showBase && <div className="base" style={{ bottom: H * 0.5 }}><span>亂猜基準 50%</span></div>}
+        {items.map((it) => (
+          <button
+            key={it.q}
+            type="button"
+            aria-label={`第 ${it.q} 題 答對 ${Math.round(it.rate * 100)}%`}
+            className={`col1 ${selected === it.q ? "sel" : ""} ${selected !== null && selected !== it.q ? "dim" : ""}`}
+            onClick={() => onSelect(it.q)}
+          >
+            {it.flagged && <b>!</b>}
+            <i style={{ height: Math.max(3, it.rate * H), background: it.flagged ? "var(--bad)" : it.type === "mark" ? "var(--mark-l)" : "var(--choice)" }} />
+          </button>
+        ))}
+      </div>
+      <div className="axis">
+        {items.map((it) => <span key={it.q} className={it.flagged ? "flag" : ""}>{it.q}</span>)}
+      </div>
+    </>
+  );
+}
+
+export function Histogram({ data, total, mark }: { data: { correct: number; papers: number }[]; total: number; mark?: number | null }) {
+  const trimmed = data.filter((d, i) => d.papers > 0 || data.slice(0, i).some((x) => x.papers > 0));
+  const first = trimmed[0]?.correct ?? 0;
+  const rows = data.filter((d) => d.correct >= first);
+  const max = Math.max(1, ...rows.map((d) => d.papers));
+  return (
+    <>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 120, borderBottom: "1px solid #dfe5e1" }}>
+        {rows.map((d) => (
+          <div key={d.correct} title={`${d.correct} 題：${d.papers} 份`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%", gap: 2 }}>
+            {d.papers > 0 && <span style={{ fontSize: 10, color: "var(--ink3)" }}>{d.papers}</span>}
+            <div style={{ width: "100%", height: (d.papers / max) * 100, background: mark !== undefined && mark !== null && d.correct === Math.round(mark) ? "var(--brand)" : "var(--choice-l)", borderRadius: "3px 3px 0 0" }} />
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--ink3)" }}>
+        <span>{first} 題</span><span>{total} 題</span>
+      </div>
+    </>
+  );
+}
+
+export type Series = { label: string; color: string; values: (number | null)[]; dashed?: boolean; area?: boolean; emphasis?: boolean };
+
+export function LineChart({ labels, series, height = 220 }: { labels: string[]; series: Series[]; height?: number }) {
+  const W = 560, H = height, left = 44, right = 20, top = 18, bottom = 34;
+  const x = (i: number) => labels.length <= 1 ? (left + W - right) / 2 : left + 30 + (i * (W - left - right - 60)) / (labels.length - 1);
+  const y = (v: number) => top + (1 - v) * (H - top - bottom);
+  return (
+    <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="各單元答對率" style={{ display: "block" }}>
+      {[1, 0.5, 0].map((r) => (
         <g key={r}>
-          <line x1={pad} x2={w - pad} y1={h - (h - 10) * r} y2={h - (h - 10) * r} stroke="var(--line2)" strokeDasharray={r === 0.5 ? "3 3" : undefined} />
+          <line x1={left} x2={W - right} y1={y(r)} y2={y(r)} stroke={r === 0 ? "#dfe5e1" : "#eef1ef"} />
+          <text x={left - 8} y={y(r) + 4} textAnchor="end" fontSize="11" fill="#85918a">{Math.round(r * 100)}%</text>
         </g>
       ))}
-      {items.map((it, i) => {
-        const rate = it.answered ? it.correct / it.answered : 0;
-        const bh = Math.max(2, (h - 10) * rate);
-        const fill = it.flagged ? "var(--bad)" : it.type === "mark" ? "var(--mark)" : "var(--brand-m)";
+      {series.map((s) => {
+        const pts = s.values.map((v, i) => (v === null ? null : [x(i), y(v)] as const)).filter(Boolean) as (readonly [number, number])[];
+        if (!pts.length) return null;
+        const path = pts.map((p) => p.join(",")).join(" ");
         return (
-          <g key={it.q} onClick={() => onSelect(it.q)} style={{ cursor: "pointer" }}>
-            <rect x={pad + i * bw} y={0} width={bw} height={h} fill="transparent" />
-            <rect
-              x={pad + i * bw + 1.5}
-              y={h - bh}
-              width={Math.max(1, bw - 3)}
-              height={bh}
-              rx={2}
-              fill={fill}
-              opacity={selected === null || selected === it.q ? 1 : 0.45}
-              stroke={selected === it.q ? "var(--ink)" : "none"}
-              strokeWidth={1.5}
-            />
+          <g key={s.label}>
+            {s.area && <polygon points={`${path} ${pts[pts.length - 1][0]},${y(0)} ${pts[0][0]},${y(0)}`} fill="#e4efe8" opacity="0.6" />}
+            <polyline points={path} fill="none" stroke={s.color} strokeWidth={s.emphasis ? 3 : 2.5} strokeDasharray={s.dashed ? "6 5" : undefined} strokeLinecap="round" strokeLinejoin="round" />
+            {s.emphasis && pts.map(([px, py], i) => (
+              <g key={i}>
+                <circle cx={px} cy={py} r={i === pts.length - 1 ? 5.5 : 4.5} fill={s.color} />
+                <text x={px} y={py - 11} textAnchor="middle" fontSize="12" fontWeight="700" fill={s.color}>{Math.round((s.values[i] ?? 0) * 100)}%</text>
+              </g>
+            ))}
           </g>
         );
       })}
-      <line x1={pad} x2={w - pad} y1={h} y2={h} stroke="var(--line)" />
-      {items.map((it, i) =>
-        i === 0 || it.q % 5 === 0 ? (
-          <text key={it.q} x={pad + i * bw + bw / 2} y={h + 14} textAnchor="middle">{it.q}</text>
-        ) : null,
-      )}
+      {labels.map((l, i) => <text key={l + i} x={x(i)} y={H - 10} textAnchor="middle" fontSize="12" fill="#4b5a51">{l}</text>)}
     </svg>
   );
 }
 
-export function RateColumns({ rows }: { rows: { label: string; values: (number | null)[] }[] }) {
-  const colors = ["var(--brand)", "var(--brand-m)", "var(--mark)"];
-  const w = 560, h = 150, pad = 40;
-  const gw = (w - pad * 2) / Math.max(1, rows.length);
-  const bw = Math.min(26, (gw - 16) / 3);
+export function Sparkline({ values }: { values: number[] }) {
+  if (values.length < 2) return null;
+  const W = 140, H = 44, min = Math.min(...values) - 0.05, max = Math.max(...values) + 0.05;
+  const pts = values.map((v, i) => [4 + (i * (W - 8)) / (values.length - 1), H - 6 - ((v - min) / (max - min)) * (H - 12)]);
+  const last = pts[pts.length - 1];
   return (
-    <svg viewBox={`0 0 ${w} ${h + 24}`} width="100%" role="img" aria-label="各單元答對率">
-      {[0, 0.5, 1].map((r) => (
-        <g key={r}>
-          <line x1={pad} x2={w - pad} y1={h - (h - 12) * r} y2={h - (h - 12) * r} stroke="var(--line2)" />
-          <text x={pad - 4} y={h - (h - 12) * r + 3} textAnchor="end">{Math.round(r * 100)}%</text>
-        </g>
-      ))}
-      {rows.map((row, i) => (
-        <g key={row.label}>
-          {row.values.map((v, j) =>
-            v === null ? null : (
-              <rect key={j} x={pad + i * gw + gw / 2 - (bw * 3) / 2 + j * bw + 1} y={h - (h - 12) * v} width={bw - 2} height={(h - 12) * v} rx={2} fill={colors[j]} />
-            ),
-          )}
-          <text x={pad + i * gw + gw / 2} y={h + 15} textAnchor="middle">{row.label}</text>
-        </g>
-      ))}
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+      <polyline points={pts.map((p) => p.join(",")).join(" ")} fill="none" stroke="var(--choice)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={last[0]} cy={last[1]} r="4" fill="var(--brand)" />
     </svg>
+  );
+}
+
+export function GroupBars({ options, high, low, label }: { options: string[]; high: Record<string, number>; low: Record<string, number>; label: (o: string) => string }) {
+  const max = Math.max(1, ...options.map((o) => Math.max(high[o] ?? 0, low[o] ?? 0)));
+  return (
+    <>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 14, height: 120, borderBottom: "1px solid #dfe5e1", padding: "0 6px" }}>
+        {options.map((o) => (
+          <div key={o} style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "flex-end", gap: 3, height: "100%" }}>
+            <div title={`高分組 ${high[o] ?? 0}`} style={{ width: 14, height: ((high[o] ?? 0) / max) * 100, background: "var(--brand)", borderRadius: "3px 3px 0 0" }} />
+            <div title={`低分組 ${low[o] ?? 0}`} style={{ width: 14, height: ((low[o] ?? 0) / max) * 100, background: "#b7c9bd", borderRadius: "3px 3px 0 0" }} />
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 14, padding: "0 6px" }}>
+        {options.map((o) => <span key={o} style={{ flex: 1, textAlign: "center", fontSize: 12, fontWeight: 700, color: "var(--ink2)" }}>{label(o)}</span>)}
+      </div>
+    </>
   );
 }
