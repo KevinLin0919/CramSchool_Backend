@@ -58,13 +58,13 @@ export default function OverviewPage() {
         )}
       </div>
 
-      <div className="row2">
+      <div className="row2" style={{ gridTemplateColumns: "minmax(0,1.25fr) minmax(0,1fr)" }}>
         <section className="card">
           <div className="title"><h2>最近的考試</h2><a href="#/exams" style={{ fontSize: 13, fontWeight: 700 }}>全部考試</a></div>
           <div className="table">
-            <div className="tr th" style={{ gridTemplateColumns: "minmax(0,2.2fr) minmax(0,1fr) 60px 130px 120px" }}><span>考試</span><span>班級</span><span className="n">份數</span><span>平均答對</span><span>狀態</span></div>
+            <div className="tr th" style={{ gridTemplateColumns: "minmax(0,2fr) minmax(0,1.1fr) 50px 124px 100px" }}><span>考試</span><span>班級</span><span className="n">份數</span><span>平均答對</span><span>狀態</span></div>
             {data.recent.slice(0, 6).map((e) => (
-              <button key={e.uuid} type="button" className="tr" style={{ gridTemplateColumns: "minmax(0,2.2fr) minmax(0,1fr) 60px 130px 120px" }} onClick={() => go(`/exam/${e.uuid}`)}>
+              <button key={e.uuid} type="button" className="tr" style={{ gridTemplateColumns: "minmax(0,2fr) minmax(0,1.1fr) 50px 124px 100px" }} onClick={() => go(`/exam/${e.uuid}`)}>
                 <span><b>{e.template_name}</b><small>{e.exam_date}</small></span>
                 <span style={{ color: "var(--ink2)" }}>{e.class_name}</span>
                 <span className="n">{e.papers}</span>
@@ -86,6 +86,7 @@ export default function OverviewPage() {
           <section className="card">
             <div className="title"><h2>{focus.name} · 各單元</h2><span>全班答對率</span></div>
             <LineChart
+              height={300}
               labels={focus.trend.map((t) => t.unit ?? t.exam_date)}
               series={[
                 { label: "是非題", color: "var(--mark)", values: focus.trend.map((t) => t.mark_rate) },

@@ -18,6 +18,7 @@ export default function ExamReport({ uuid }: { uuid: string }) {
   const [selected, setSelected] = useState<number | null>(null);
   const [filter, setFilter] = useState<"all" | "mark" | "choice">("all");
   const [regrading, setRegrading] = useState(false);
+  const [allStudents, setAllStudents] = useState(false);
 
   function load() {
     api.report(uuid).then((r) => {
@@ -138,7 +139,7 @@ export default function ExamReport({ uuid }: { uuid: string }) {
           <section className="card">
             <div className="title"><h2>學生</h2><span>依答對題數</span></div>
             <div className="table">
-              {[...report.paper_list].sort((a, b) => b.correct - a.correct).map((p) => (
+              {[...report.paper_list].sort((a, b) => b.correct - a.correct).slice(0, allStudents ? undefined : 8).map((p) => (
                 <button key={p.session_uuid} type="button" className="tr" disabled={!p.student_id} style={{ gridTemplateColumns: "minmax(0,1fr) 110px 60px", padding: "8px 10px" }} onClick={() => p.student_id && go(`/student/${p.student_id}`)}>
                   <span>{p.student_name ?? <span className="note">未配對</span>}</span>
                   <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="meter" style={{ width: 50 }}><i style={{ width: `${(p.correct / report.total) * 100}%`, background: "var(--choice)" }} /></span>{p.correct}/{report.total}</span>
@@ -146,6 +147,11 @@ export default function ExamReport({ uuid }: { uuid: string }) {
                 </button>
               ))}
             </div>
+            {report.paper_list.length > 8 && (
+              <button type="button" className="btn soft" style={{ alignSelf: "center" }} onClick={() => setAllStudents((v) => !v)}>
+                {allStudents ? "收起" : `顯示全部 ${report.paper_list.length} 位`}
+              </button>
+            )}
           </section>
         </div>
       </div>
