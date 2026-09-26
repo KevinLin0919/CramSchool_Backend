@@ -53,6 +53,14 @@ export function EChart({ option, height, onEvents, ariaLabel }: { option: EChart
     chart.current = c;
     const names = ["click", "mouseover", "legendselectchanged"];
     names.forEach((n) => c.on(n, (p) => handlers.current?.[n]?.(p)));
+    // A click anywhere in a category's column, not only on its bar: a bar
+    // for a question almost nobody got right is a few pixels tall.
+    c.getZr().on("click", (e) => {
+      const fn = handlers.current?.axisclick;
+      if (!fn || !c.containPixel({ gridIndex: 0 }, [e.offsetX, e.offsetY])) return;
+      const [index] = c.convertFromPixel({ gridIndex: 0 }, [e.offsetX, e.offsetY]) as number[];
+      if (Number.isFinite(index)) fn({ dataIndex: Math.round(index) });
+    });
     const ro = new ResizeObserver(() => c.resize());
     ro.observe(el.current);
     return () => { ro.disconnect(); c.dispose(); chart.current = null; };

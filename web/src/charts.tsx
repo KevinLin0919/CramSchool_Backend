@@ -58,7 +58,7 @@ export function ItemBars({ items, selected, onSelect }: { items: ItemBar[]; sele
       }],
     };
   }, [items, selected]);
-  return <EChart option={option} height={260} ariaLabel="每題答對率長條圖" onEvents={{ click: (p) => p.componentType === "series" && onSelect(items[p.dataIndex].q) }} />;
+  return <EChart option={option} height={260} ariaLabel="每題答對率長條圖" onEvents={{ axisclick: (p) => items[p.dataIndex] && onSelect(items[p.dataIndex].q) }} />;
 }
 
 // ── 選項分布 ─────────────────────────────────────────────────────────────────
@@ -175,7 +175,7 @@ export function Histogram({ data, total, median, mean, selected, onSelect }: {
       },
     }],
   }), [rows, total, median, mean, selected]);
-  return <EChart option={option} height={210} ariaLabel="答對題數分布" onEvents={{ click: (p) => { const d = rows[p.dataIndex]; if (d?.papers) onSelect(selected === d.correct ? null : d.correct); } }} />;
+  return <EChart option={option} height={210} ariaLabel="答對題數分布" onEvents={{ axisclick: (p) => { const d = rows[p.dataIndex]; if (d?.papers) onSelect(selected === d.correct ? null : d.correct); } }} />;
 }
 
 // ── 趨勢折線 ─────────────────────────────────────────────────────────────────
