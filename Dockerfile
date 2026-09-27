@@ -1,35 +1,15 @@
-ARG WITH_LABEL=0
-
 # The class report pages. Built here so the image is the one thing deployed:
 # no separate web host, and the page and the API it reads always match.
 FROM node:22-alpine AS web
 ARG BRAND=浮島
 ARG WITH_LABEL=0
+# WITH_LABEL=1 adds the template editor (QAT); BRAND names the product.
 ENV VITE_BRAND=$BRAND VITE_WITH_LABEL=$WITH_LABEL
 WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
-
-# The default branch has no dependency on the label build stage.
-FROM node:22-alpine AS label
-ARG BRAND=浮島
-ARG WITH_LABEL=0
-ENV VITE_BRAND=$BRAND VITE_WITH_LABEL=$WITH_LABEL
-WORKDIR /label
-COPY label/package.json label/package-lock.json ./
-RUN npm ci --no-audit --no-fund
-COPY label/ ./
-RUN npm run build
-
-FROM scratch AS label-0
-WORKDIR /output
-
-FROM label AS label-1
-RUN mkdir -p /output/srv && cp -a /label/dist /output/srv/label_dist
-
-FROM label-${WITH_LABEL} AS label-out
 
 FROM python:3.13-slim AS base
 
@@ -65,7 +45,6 @@ COPY app ./app
 COPY scripts ./scripts
 RUN uv pip install --system --no-deps .
 COPY --from=web /web/dist /srv/web_dist
-COPY --from=label-out /output/ /
 
 # Runs unprivileged. The data volume is chowned in the entrypoint because its
 # ownership is decided by the host mount, not by this image.

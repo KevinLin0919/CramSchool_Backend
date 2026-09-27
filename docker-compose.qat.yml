@@ -47,7 +47,6 @@ services:
       YOLO_URL: http://yolo:8082
       # 讀母卷正解。留空＝按鈕顯示「尚未啟用」；金鑰由 Kevin 自己填進 .env.qat。
       GOOGLE_VISION_API_KEY: ${GOOGLE_VISION_API_KEY:-}
-      LABEL_DIST: /srv/label_dist
       # This network's gateway, which is what Funnel traffic appears to come
       # from once Docker's proxy has forwarded it. See the pinned subnet below.
       TRUSTED_PROXIES: '["172.31.241.1"]'

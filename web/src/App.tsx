@@ -8,6 +8,13 @@ import ExamList from "./ExamList";
 import ExamReport from "./ExamReport";
 import StudentPage from "./StudentPage";
 import ClassPage from "./ClassPage";
+import TemplatesPage from "./label/TemplatesPage";
+import TemplateEditor from "./label/TemplateEditor";
+import { FeedbackHost } from "./label/feedback";
+import "./label/label.css";
+
+// The template editor exists only in builds that ask for it (QAT).
+const WITH_TEMPLATES = import.meta.env.VITE_WITH_LABEL === "1";
 
 // Hash routes, because the page is served as static files under /web and a
 // hash never reaches the server: #/exam/<uuid>, #/student/<id>, #/class/<id>.
@@ -85,7 +92,11 @@ export default function App() {
         </div>
         <Search classes={classes} />
         <nav className="nav" aria-label="主選單">
-          {import.meta.env.VITE_WITH_LABEL === "1" && <a href="/label/"><Icon.exam />建立模板</a>}
+          {WITH_TEMPLATES && (
+            <button type="button" className={route.kind === "templates" ? "on" : ""} onClick={() => go("/templates")}>
+              <Icon.template />建立模板
+            </button>
+          )}
           {nav.map((n) => (
             <button key={n.key} type="button" className={route.kind === n.key || n.also?.includes(route.kind) ? "on" : ""} onClick={() => go(n.path)}>
               <n.icon />{n.text}
@@ -108,12 +119,18 @@ export default function App() {
         </div>
       </aside>
       <main className="main">
-        {route.kind === "exam" && route.id ? <ExamReport uuid={route.id} /> :
+        {WITH_TEMPLATES && route.kind === "templates" ? (
+          route.id === "edit" ? <TemplateEditor key="new" /> :
+          route.id && /^\d+$/.test(route.id) ? <TemplateEditor key={route.id} templateId={Number(route.id)} /> :
+          <TemplatesPage key={route.id ?? ""} openList={route.id === "list"} />
+        ) :
+         route.kind === "exam" && route.id ? <ExamReport uuid={route.id} /> :
          route.kind === "student" && route.id ? <StudentPage studentId={Number(route.id)} /> :
          route.kind === "class" && route.id ? <ClassPage classId={Number(route.id)} /> :
          route.kind === "exams" ? <ExamList /> :
          <OverviewPage />}
       </main>
+      {WITH_TEMPLATES && <div className="tpl"><FeedbackHost /></div>}
     </div>
   );
 }

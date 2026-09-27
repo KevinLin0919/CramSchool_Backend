@@ -1,5 +1,6 @@
-import { apiFetch } from './api'
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from './constants'
+import { apiFetch } from './http'
+export const CANVAS_WIDTH = 800
+export const CANVAS_HEIGHT = 600
 
 export type AnswerType = 'choice' | 'mark' | 'digit' | 'chinese' | 'text'
 export type Rect = { x: number; y: number; width: number; height: number }

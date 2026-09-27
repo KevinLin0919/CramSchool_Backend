@@ -48,7 +48,6 @@ class Settings(BaseSettings):
     # The built web report (web/dist), served under /web when present. The
     # image puts it here; a bare checkout has none, and the API runs without.
     web_dist: str = "/srv/web_dist"
-    label_dist: str = ""
     yolo_url: str | None = None
     google_vision_api_key: str | None = None
 

@@ -13,9 +13,8 @@ from .routers import ai, analytics, auth, classes, exams, images, sessions, stud
 DESCRIPTION = """
 補習班自動批改系統後端。
 
-供 iOS App 使用。舊的 `/api/exam-templates` 介面已移除；
-QAT 的模板編輯頁與班級報告共用登入。
-舊格式的資料仍可用 `scripts/import_legacy.py` 一次性匯入。
+供 iOS App 使用。舊的 `/api/exam-templates` 介面已移除——網頁前端不再開發，
+而舊格式的資料仍可用 `scripts/import_legacy.py` 一次性匯入。
 """
 
 
@@ -63,10 +62,7 @@ def create_app() -> FastAPI:
     application.include_router(analytics.router)
     application.include_router(ai.router)
 
-    web_mounted = _mount_web(application, settings)
-    label_mounted = _mount_label(application, settings)
-    if web_mounted or label_mounted:
-        _static_headers(application)
+    _mount_web(application, settings)
 
     @application.get("/health", tags=["ops"], summary="健康檢查")
     def health() -> dict:
@@ -75,7 +71,7 @@ def create_app() -> FastAPI:
     return application
 
 
-def _mount_web(application: FastAPI, settings) -> bool:
+def _mount_web(application: FastAPI, settings) -> None:
     """The class report pages, same-origin with the API they read.
 
     Same origin is the point: the browser's bearer token is never offered to
@@ -85,7 +81,7 @@ def _mount_web(application: FastAPI, settings) -> bool:
     """
     dist = Path(settings.web_dist)
     if not (dist / "index.html").is_file():
-        return False
+        return
 
     application.mount("/web", StaticFiles(directory=dist, html=True), name="web")
 
@@ -93,25 +89,10 @@ def _mount_web(application: FastAPI, settings) -> bool:
     def root() -> RedirectResponse:
         return RedirectResponse("/web/")
 
-    return True
-
-
-def _mount_label(application: FastAPI, settings) -> bool:
-    if not settings.label_dist:
-        return False
-    dist = Path(settings.label_dist)
-    if not (dist / "index.html").is_file():
-        return False
-    application.mount("/label", StaticFiles(directory=dist, html=True), name="label")
-    return True
-
-
-def _static_headers(application: FastAPI) -> None:
     @application.middleware("http")
-    async def static_headers(request: Request, call_next):
+    async def web_headers(request: Request, call_next):
         response = await call_next(request)
-        if any(request.url.path == prefix or request.url.path.startswith(prefix + "/")
-               for prefix in ("/web", "/label")):
+        if request.url.path.startswith("/web"):
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
                 "script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"

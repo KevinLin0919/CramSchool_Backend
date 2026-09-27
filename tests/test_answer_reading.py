@@ -91,6 +91,6 @@ def test_read_answers_upstream_failure(client, auth, make_png, vision):
 
 def test_read_answers_rejects_bad_image(client, auth, vision):
     vision(lambda body: httpx.Response(200, json={"responses": []}))
-    res = client.post("/api/v1/templates/read-answers",
-                      json={"image_base64": "bm90IGFuIGltYWdl", "boxes": [[0, 0, 1, 1]]}, headers=auth)
+    body = {"image_base64": "bm90IGFuIGltYWdl", "boxes": [[0, 0, 1, 1]]}
+    res = client.post("/api/v1/templates/read-answers", json=body, headers=auth)
     assert res.status_code == 400

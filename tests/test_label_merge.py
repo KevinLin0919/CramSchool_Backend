@@ -117,34 +117,23 @@ def test_create_template_metadata(client, auth, uploaded_image):
         assert fetched[key] == value
 
 
-@pytest.mark.parametrize("web,label", [(False, True), (True, True), (True, False), (False, False)])
-def test_static_mounts_and_headers(tmp_path, monkeypatch, web, label):
-    for name, enabled in (("web", web), ("label", label)):
-        dist = tmp_path / name
-        dist.mkdir()
-        (dist / "index.html").write_text(f"<html>{name}</html>")
-        monkeypatch.setenv(f"{name.upper()}_DIST", str(dist) if enabled else "")
+@pytest.mark.parametrize("web", [True, False])
+def test_static_mount_and_headers(tmp_path, monkeypatch, web):
+    dist = tmp_path / "web"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html>web</html>")
+    monkeypatch.setenv("WEB_DIST", str(dist) if web else str(tmp_path / "none"))
     get_settings.cache_clear()
     try:
         with TestClient(create_app()) as client:
-            for name, enabled in (("web", web), ("label", label)):
-                res = client.get(f"/{name}/")
-                assert res.status_code == (200 if enabled else 404)
-                if enabled:
-                    assert "connect-src 'self'" in res.headers["Content-Security-Policy"]
-                    assert res.headers["X-Frame-Options"] == "DENY"
-                    assert res.headers["Cache-Control"] == "no-cache"
-            assert "Content-Security-Policy" not in client.get("/health").headers
-    finally:
-        get_settings.cache_clear()
-
-
-def test_label_without_index_is_not_mounted(tmp_path, monkeypatch):
-    monkeypatch.setenv("LABEL_DIST", str(tmp_path))
-    monkeypatch.setenv("WEB_DIST", "")
-    get_settings.cache_clear()
-    try:
-        with TestClient(create_app()) as client:
+            res = client.get("/web/")
+            assert res.status_code == (200 if web else 404)
+            if web:
+                assert "connect-src 'self'" in res.headers["Content-Security-Policy"]
+                assert res.headers["X-Frame-Options"] == "DENY"
+                assert res.headers["Cache-Control"] == "no-cache"
+            # The standalone editor is gone; the report carries it now.
             assert client.get("/label/").status_code == 404
+            assert "Content-Security-Policy" not in client.get("/health").headers
     finally:
         get_settings.cache_clear()
