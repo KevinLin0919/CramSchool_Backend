@@ -182,6 +182,13 @@ export function Histogram({ data, total, median, mean, selected, onSelect }: {
 
 export type Series = { label: string; color: string; values: (number | null)[]; dashed?: boolean; area?: boolean; emphasis?: boolean };
 
+// ECharts paints on a canvas, which cannot read "var(--bad)"; left as is the
+// line falls back to grey. Resolve the token to its value first.
+const paint = (colour: string) => {
+  const m = /^var\((--[\w-]+)\)$/.exec(colour.trim());
+  return m ? getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim() || colour : colour;
+};
+
 export function LineChart({ labels, series, height = 250, onPoint, name = "各單元答對率" }: {
   labels: string[]; series: Series[]; height?: number; onPoint?: (index: number) => void; name?: string;
 }) {
@@ -199,10 +206,10 @@ export function LineChart({ labels, series, height = 250, onPoint, name = "各�
     series: series.map((s) => ({
       name: s.label, type: "line", data: s.values, connectNulls: true, smooth: 0.25,
       symbol: "circle", symbolSize: s.emphasis ? 9 : 6, showSymbol: true,
-      lineStyle: { color: s.color, width: s.emphasis ? 3 : 2, type: s.dashed ? "dashed" : "solid" },
-      itemStyle: { color: s.color },
+      lineStyle: { color: paint(s.color), width: s.emphasis ? 3 : 2, type: s.dashed ? "dashed" : "solid" },
+      itemStyle: { color: paint(s.color) },
       areaStyle: s.area ? { color: "rgba(156,201,174,0.18)" } : undefined,
-      label: s.emphasis ? { show: true, position: "top", fontFamily: MONO, fontWeight: 600, color: s.color, formatter: (p: any) => `${Math.round(p.value * 100)}%` } : undefined,
+      label: s.emphasis ? { show: true, position: "top", fontFamily: MONO, fontWeight: 600, color: paint(s.color), formatter: (p: any) => `${Math.round(p.value * 100)}%` } : undefined,
       emphasis: { focus: "series" },
       z: s.emphasis ? 3 : 2,
     })),
