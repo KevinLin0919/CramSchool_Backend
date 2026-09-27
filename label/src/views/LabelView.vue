@@ -135,10 +135,9 @@
           <div v-if="draft" class="template-fields">
             <label class="hint-text">考卷名稱<input v-model="draft.name" class="ds-input ds-input--sm" maxlength="255" :disabled="locked" /></label>
             <label class="hint-text">單元<input v-model="draft.unit" class="ds-input ds-input--sm" maxlength="40" placeholder="選填，最多 40 字" :disabled="locked" /></label>
-            <label class="hint-text">選項數<input v-model.number="draft.optionCount" class="ds-input ds-input--sm ds-input--mono" type="number" min="2" max="10" step="1" :disabled="locked" /></label>
           </div>
           <p v-if="readOnly" class="ds-banner ds-banner--warning">這份考卷有多頁，網頁目前只能檢視第一頁</p>
-          <p v-if="invalidMetadata" class="hint-text field-error">請填入考卷名稱，單元最多 40 字，選項數須為 2–10。</p>
+          <p v-if="invalidMetadata" class="hint-text field-error">請填入考卷名稱，單元最多 40 字。</p>
           <p class="ds-eyebrow panel-label">工具</p>
           <div class="batch-grid">
             <button
@@ -169,10 +168,10 @@
               <input type="checkbox" :checked="allChecked" :indeterminate="checked.length > 0 && !allChecked" :disabled="locked" @change="toggleAll" />
               {{ checked.length ? `已選 ${checked.length} 格` : '全選' }}
             </label>
-            <select v-model="batchType" class="ds-input ds-input--sm" :disabled="locked || !checked.length" aria-label="整批設定題型">
-              <option value="choice">選擇題</option><option value="mark">是非題</option><option value="digit">填空題</option>
-            </select>
-            <button class="ds-btn ds-btn--sm" :disabled="locked || !checked.length" @click="applyBatchType">套用題型</button>
+            <div class="type-toggle" role="group" aria-label="把勾選的格子設為">
+              <button v-for="t in TYPES" :key="t.value" type="button" class="ds-btn ds-btn--sm"
+                :disabled="locked || !checked.length" @click="applyBatchType(t.value)">設為{{ t.label }}</button>
+            </div>
           </div>
           <p v-if="currentImage?.labels?.length && isMasterView" class="hint-text batch-hint">勾選要設定的格子，按住 Shift 可一次勾選一整段。</p>
           <div v-if="currentImage?.labels && currentImage.labels.length > 0" class="label-scroll">
@@ -209,12 +208,11 @@
               <button @click.stop="removeLabel(index)" :disabled="locked" class="ds-btn ds-btn--ghost ds-btn--sm ds-btn--icon" title="刪除標註">
                 <X :size="14" />
               </button>
-              <label class="label-type hint-text">題型
-                <select v-model="label.answerType" class="ds-input ds-input--sm" :disabled="locked" @change="label.answerTypeLocked = true" @click.stop>
-                  <option value="choice">選擇題</option><option value="mark">是非題</option><option value="digit">填空題</option>
-                  <option v-if="!['choice', 'mark', 'digit'].includes(label.answerType ?? '')" :value="label.answerType">其他</option>
-                </select>
-              </label>
+              <div class="label-type type-toggle" role="radiogroup" :aria-label="`第 ${questionNumbers.get(label)} 題題型`" @click.stop>
+                <button v-for="t in TYPES" :key="t.value" type="button" role="radio"
+                  class="ds-btn ds-btn--sm" :class="{ on: label.answerType === t.value }" :aria-checked="label.answerType === t.value"
+                  :disabled="locked" @click="setType(label, t.value)">{{ t.label }}</button>
+              </div>
               <p v-if="labelError(label)" class="hint-text field-error" role="alert">{{ labelError(label) }}</p>
             </div>
           </div>
@@ -320,11 +318,10 @@ const saving = ref(false)
 const saveError = ref('')
 const readOnly = computed(() => (draft.value?.pageCount ?? 0) > 1)
 const locked = computed(() => readOnly.value || saving.value || !!currentImage.value?.isPredicting)
-const labelError = (label: Label) => answerError(toTemplateLabel(label), draft.value?.optionCount ?? 4)
+const labelError = (label: Label) => answerError(toTemplateLabel(label))
 const invalidAnswers = computed(() => !!currentImage.value?.labels?.some(label => labelError(label)))
 const hasAnswers = computed(() => !!currentImage.value?.labels?.some(label => label.expectedAnswer?.trim()))
-const invalidMetadata = computed(() => !draft.value?.name.trim() || Array.from(draft.value.unit).length > 40 ||
-  !Number.isInteger(draft.value.optionCount) || draft.value.optionCount < 2 || draft.value.optionCount > 10)
+const invalidMetadata = computed(() => !draft.value?.name.trim() || Array.from(draft.value.unit).length > 40)
 const questionNumbers = computed(() => {
   const labels = currentImage.value?.labels ?? []
   const value = draft.value
@@ -338,7 +335,7 @@ const questionNumbers = computed(() => {
 })
 const inferAnswerType = (label: Label) => {
   if (!label.answerTypeLocked) {
-    label.answerType = guessAnswerType(label.expectedAnswer ?? '', draft.value?.optionCount ?? 4)
+    label.answerType = guessAnswerType(label.expectedAnswer ?? '')
   }
 }
 
@@ -351,16 +348,14 @@ const displayedImages = computed(() =>
 )
 const currentImage = computed(() => displayedImages.value[currentImageIndex.value])
 
-// A lone "2" is an option only while it is within the option count, so a
-// change there re-reads every cell the teacher has not set by hand.
-watch(() => draft.value?.optionCount, () => {
-  currentImage.value?.labels?.forEach(inferAnswerType)
-})
 
 // Batch typing. The detector finds cells but not what kind of question each
 // one is, so the teacher ticks a run of cells and sets the type once.
 const checked = ref<Label[]>([])
-const batchType = ref<AnswerType>('choice')
+const TYPES = [
+  { value: 'choice', label: '選擇' }, { value: 'mark', label: '是非' }, { value: 'digit', label: '填空' },
+] as const
+const setType = (label: Label, type: AnswerType) => { label.answerType = type; label.answerTypeLocked = true }
 let lastChecked = -1
 const allChecked = computed(() => {
   const labels = currentImage.value?.labels ?? []
@@ -382,9 +377,9 @@ const toggleCheck = (index: number, event: MouseEvent) => {
     : checked.value.filter(l => !range.includes(l))
   lastChecked = index
 }
-const applyBatchType = () => {
-  checked.value.forEach(label => { label.answerType = batchType.value; label.answerTypeLocked = true })
-  showToast(`已將 ${checked.value.length} 格設為「${({ choice: '選擇題', mark: '是非題', digit: '填空題' } as Record<string, string>)[batchType.value]}」`, 'success')
+const applyBatchType = (type: AnswerType) => {
+  checked.value.forEach(label => setType(label, type))
+  showToast(`已將 ${checked.value.length} 格設為${TYPES.find(t => t.value === type)?.label}題`, 'success')
   checked.value = []
 }
 // Removed or re-detected cells must not linger in the selection.
@@ -1600,7 +1595,10 @@ canvas {
 .field-error { color: var(--danger); margin: 4px 0; }
 .template-fields select { width: 100%; }
 .batch-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.batch-bar select { flex: 1; }
+.type-toggle { display: flex; gap: 4px; flex: 1; }
+.type-toggle .ds-btn { flex: 1; padding: 0 8px; }
+.type-toggle .ds-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.label-type { width: 100%; }
 .batch-all { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .batch-hint { margin: 0 0 10px; }
 .label-check { margin: 0; accent-color: var(--accent); }

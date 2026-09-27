@@ -127,21 +127,21 @@ const MARKS = ['O', 'o', '○', '◯', '圈', 'X', 'x', '✕', '✖', '✗', '×
 
 // Three kinds, the ones the app grades today: 是非 (mark), 選擇 (choice) and
 // 填空 (digit, numbers only for now). The detector finds cells but not their
-// kind, so the kind comes from the answer the teacher types. A lone number
-// within the option count reads as an option — on these papers "2" is
-// almost always ② — and the teacher can override any cell or a run of them.
-export function guessAnswerType(answer: string, optionCount = 4): AnswerType {
+// kind, so the kind comes from the answer the teacher types. A lone 1–4 reads
+// as an option — on these papers "2" is almost always ② — and the teacher can
+// override any cell or a run of them.
+export function guessAnswerType(answer: string): AnswerType {
   const value = answer.trim()
   if (!value) return 'choice'
   if (MARKS.includes(value)) return 'mark'
   if (/^[A-E]$/i.test(value) || CIRCLED.includes(value)) return 'choice'
-  if (/^(?:[1-9]|10)$/.test(value) && Number(value) <= optionCount) return 'choice'
+  if (/^[1-4]$/.test(value)) return 'choice'
   return 'digit'
 }
 export function updateAnswerType(label: Label) {
   if (!label.answerTypeLocked) label.answerType = guessAnswerType(label.answer)
 }
-export function normalizedAnswer(label: Label, optionCount: number): string {
+export function normalizedAnswer(label: Label): string {
   const value = label.answer.trim()
   if (!value) return value
   if (label.answerType === 'mark' && !MARKS.includes(value)) throw new Error('是非題正解請輸入 ○ 或 ✕')
@@ -150,25 +150,33 @@ export function normalizedAnswer(label: Label, optionCount: number): string {
   const number = /^[A-E]$/i.test(value) ? value.toUpperCase().charCodeAt(0) - 64
     : CIRCLED.includes(value) ? CIRCLED.indexOf(value) + 1
     : /^(?:[1-9]|10)$/.test(value) ? Number(value) : NaN
-  if (!Number.isInteger(number) || number > optionCount) throw new Error(`選擇題正解請輸入 A–E、①–⑩ 或 1–${optionCount}，且不可超過選項數`)
+  if (!Number.isInteger(number)) throw new Error('選擇題正解請輸入 A–E、①–⑩ 或 1–10')
   return String(number)
 }
-export function answerError(label: Label, optionCount: number): string {
-  try { normalizedAnswer(label, optionCount); return '' } catch (err) {
+export function answerError(label: Label): string {
+  try { normalizedAnswer(label); return '' } catch (err) {
     return err instanceof Error ? err.message : '選擇題正解不合法'
   }
+}
+
+// The server keeps one option count per paper, which both grading and the
+// report's option chart read. Papers mix three- and four-option questions, so
+// rather than ask, take four or the highest option any answer uses, and never
+// shrink what a loaded template already had.
+function optionCountFor(draft: TemplateDraft, boxes: { answer: string; answer_type: AnswerType }[]): number {
+  const highest = Math.max(0, ...boxes.filter(b => b.answer_type === 'choice' && b.answer).map(b => Number(b.answer)))
+  return Math.min(10, Math.max(4, highest, draft.id ? draft.optionCount : 0))
 }
 
 export async function saveTemplate(draft: TemplateDraft): Promise<void> {
   if (draft.pageCount > 1) throw new Error('多頁模板請在 App 編輯')
   if (!draft.name.trim()) throw new Error('請輸入考卷名稱')
   if (Array.from(draft.unit).length > 40) throw new Error('單元不可超過 40 字')
-  if (!Number.isInteger(draft.optionCount) || draft.optionCount < 2 || draft.optionCount > 10) throw new Error('選項數須為 2–10')
   if (!draft.labels.some(l => l.answer.trim())) throw new Error('至少一格有正解才能存')
   const labels = numberedLabels(draft)
   const boxes = labels.map(l => ({ ...toNormalized(l, draft.width, draft.height),
-    question_no: l.questionNo, answer: normalizedAnswer(l, draft.optionCount), answer_type: l.answerType, label: l.label }))
-  const payload: Record<string, unknown> = { exam_name: draft.name.trim(), unit: draft.unit || null, option_count: draft.optionCount }
+    question_no: l.questionNo, answer: normalizedAnswer(l), answer_type: l.answerType, label: l.label }))
+  const payload: Record<string, unknown> = { exam_name: draft.name.trim(), unit: draft.unit || null, option_count: optionCountFor(draft, boxes) }
   if (draft.nameBox && (!draft.id || draft.nameBoxDirty)) payload.name_box = { page_index: draft.pageIndex, ...toNormalized(draft.nameBox, draft.width, draft.height) }
   else if (draft.nameBoxDirty) payload.name_box = null
   if (!draft.imageId) {
