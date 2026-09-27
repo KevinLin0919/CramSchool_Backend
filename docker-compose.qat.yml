@@ -56,10 +56,11 @@ services:
       MICROSOFT_AUTO_PROVISION: ${MICROSOFT_AUTO_PROVISION:-false}
       MICROSOFT_TOKEN_DAYS: ${MICROSOFT_TOKEN_DAYS:-30}
       OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
-      OPENCODE_BASE_URL: ${OPENCODE_BASE_URL:-https://opencode.ai/zen/v1}
+      # OpenCode Go: GPT 6 Luna through /responses, which also reads images.
+      OPENCODE_BASE_URL: ${OPENCODE_BASE_URL:-https://opencode.ai/zen/go/v1}
       AI_DAILY_BUDGET_USD: ${AI_DAILY_BUDGET_USD:-3}
-      AI_MODEL: ${AI_MODEL:-claude-sonnet-5}
-      AI_API_STYLE: ${AI_API_STYLE:-anthropic}
+      AI_MODEL: ${AI_MODEL:-gpt-6-luna}
+      AI_API_STYLE: ${AI_API_STYLE:-openai}
       AI_PRICE_IN: ${AI_PRICE_IN:-4}
       AI_PRICE_OUT: ${AI_PRICE_OUT:-15}
       # Role-played students only, in QAT.

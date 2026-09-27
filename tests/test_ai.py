@@ -179,6 +179,19 @@ def test_openai_responses_wire_format():
     assert reply.text == "ok" and reply.tool_calls[0].name == "x"
 
 
+def test_every_request_carries_a_session_id():
+    seen = []
+
+    def handler(request):
+        seen.append(request.headers.get("x-opencode-session"))
+        return httpx.Response(200, json={"output": [], "usage": {}})
+
+    provider = _provider("openai", handler)
+    provider.complete("sys", [{"role": "user", "text": "hi"}])
+    provider.complete("sys", [{"role": "user", "text": "again"}])
+    assert seen[0] and seen[0] == seen[1]
+
+
 def test_question_strip_is_cut_from_the_master(client, auth, uploaded_image):
     from app.ai.imaging import question_strip
     from app.deps import get_store

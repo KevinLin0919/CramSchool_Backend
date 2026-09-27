@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import json
+import uuid
 from dataclasses import dataclass, field
 
 import httpx
@@ -58,6 +59,9 @@ class Provider:
             raise AINotConfigured("尚未設定 AI（伺服器沒有 OpenCode API key）")
         self.settings = settings
         self.client = client or httpx.Client(timeout=settings.ai_timeout_seconds)
+        # OpenCode Go refuses requests without a session id ("cannot be routed
+        # efficiently"); one per provider keeps a run's turns together.
+        self.session = str(uuid.uuid4())
 
     # ── public ──────────────────────────────────────────────────────────────
 
@@ -82,7 +86,8 @@ class Provider:
         try:
             res = self.client.post(
                 self.settings.opencode_base_url.rstrip("/") + path,
-                headers={**auth, "Content-Type": "application/json"},
+                headers={**auth, "Content-Type": "application/json",
+                         "x-opencode-session": self.session},
                 json=body,
             )
         except httpx.HTTPError as exc:
