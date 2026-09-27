@@ -14,6 +14,8 @@ import re
 from dataclasses import dataclass
 
 _PLACEHOLDER = re.compile(r"\{(F\d+)\}")
+# Two figures written back to back ("{F5}{F6}") would print as one number.
+_ADJACENT = re.compile(r"(\{F\d+\})\s*(?=\{F\d+\})")
 # Digits that name something rather than count it.
 _ALLOWED = re.compile(
     r"第\s*\d+\s*(?:題|次|份|組)"      # 第 7 題
@@ -58,7 +60,7 @@ def ground(text: str, facts: Facts) -> list[Sentence]:
     values = facts.lookup()
     out: list[Sentence] = []
     for raw in _SENTENCE.findall(text):
-        raw = raw.strip()
+        raw = _ADJACENT.sub(r"\1、", raw.strip())
         if not raw:
             continue
         unknown = [m for m in _PLACEHOLDER.findall(raw) if m not in values]

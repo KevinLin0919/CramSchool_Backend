@@ -223,3 +223,12 @@ def test_a_cut_off_answer_says_so():
 
     with pytest.raises(AIError, match="截斷"):
         _provider("openai", handler).complete("sys", [{"role": "user", "text": "hi"}])
+
+
+def test_adjacent_figures_do_not_run_together():
+    from app.ai.grounding import Facts, ground
+    facts = Facts()
+    facts.add("高分組選 4", 5)
+    facts.add("低分組選 4", 6)
+    [sentence] = ground("高低分組都有人選 4 {F1}{F2}。", facts)
+    assert sentence.text == "高低分組都有人選 4 5、6。" and sentence.verified
