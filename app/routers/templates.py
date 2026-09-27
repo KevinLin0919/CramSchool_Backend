@@ -5,6 +5,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from ..answer_reading import ReadAnswersRequest, ReadAnswersResponse, read_answers
 from ..config import Settings, get_settings
 from ..db import get_db
 from ..deps import get_store
@@ -178,6 +179,15 @@ def detect_template(
     _: Teacher = Depends(current_teacher),
 ) -> DetectionResponse:
     return detect_layout(payload, settings)
+
+
+@router.post("/read-answers", response_model=ReadAnswersResponse, summary="辨識母卷正解")
+def read_template_answers(
+    payload: ReadAnswersRequest,
+    settings: Settings = Depends(get_settings),
+    _: Teacher = Depends(current_teacher),
+) -> ReadAnswersResponse:
+    return read_answers(payload, settings)
 
 
 @router.get("/{template_id}", response_model=TemplateDetail, summary="取得模板細節")

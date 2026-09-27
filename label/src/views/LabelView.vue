@@ -154,6 +154,13 @@
             >
               <ArrowUpDown :size="14" /> 自動排序
             </button>
+            <button
+              @click="detectAnswers"
+              :disabled="locked || isProcessingOCR || !currentImage?.labels?.length"
+              class="ds-btn ds-btn--sm"
+            >
+              <ScanText :size="14" /> {{ isProcessingOCR ? '辨識中…' : '答案偵測' }}
+            </button>
           </div>
           <div v-if="draft?.nameBox" class="class-row">
             <span class="ds-badge">已框選姓名欄</span>
@@ -240,7 +247,7 @@ import { ref, computed, onMounted, watch, nextTick, onBeforeUpdate, onUnmounted 
 import { useRoute, useRouter } from 'vue-router'
 import {
   Crosshair, Move, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
-  RotateCw, ArrowUpDown, X, Check, Clock,
+  RotateCw, ArrowUpDown, ScanText, X, Check, Clock,
   Save, UserRound,
 } from 'lucide-vue-next'
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../constants'
@@ -1003,6 +1010,47 @@ const fetchPredictionsForCurrentImage = async () => {
   await fetchPredictionsForImage(img)
   loadImage()
   // 學生卷 OCR 移到結果頁面執行，這裡只做 YOLO 偵測框框位置
+}
+
+// Printed answers on the master, read by Google Vision through the API and
+// written into the empty 正解 fields. Cells a teacher already filled are left
+// alone. Types follow from the text as if it had been typed.
+const isProcessingOCR = ref(false)
+const cleanAnswer = (text: string) =>
+  (text.split('\n').map(t => t.trim()).find(Boolean) ?? '')
+    .replace(/\s+/g, '')
+    .replace(/^[（(［\[【]+|[)）］\]】。．.、,，]+$/g, '')
+const detectAnswers = async () => {
+  const img = currentImage.value
+  const value = draft.value
+  if (!img?.labels?.length || !value) { showToast('請先在答案卷建立標註框', 'error'); return }
+  isProcessingOCR.value = true
+  try {
+    const { scale, offsetX, offsetY } = computeFit(value.width, value.height)
+    const boxes = img.labels.map(l => {
+      const x1 = (l.x - offsetX) / scale, y1 = (l.y - offsetY) / scale
+      return [x1, y1, x1 + l.width / scale, y1 + l.height / scale]
+    })
+    const res = await apiFetch('/api/v1/templates/read-answers', {
+      method: 'POST', body: JSON.stringify({ image_base64: await toBase64(value.blob), boxes }),
+    })
+    const { results } = await res.json() as { results: { text: string }[] }
+    if (!active) return
+    let filled = 0
+    img.labels.forEach((label, i) => {
+      const text = cleanAnswer(results[i]?.text ?? '')
+      if (!text || label.expectedAnswer?.trim()) return
+      label.expectedAnswer = text
+      inferAnswerType(label)
+      filled++
+    })
+    loadImage()
+    showToast(filled ? `已填入 ${filled} 格正解，請再核對一次` : '沒有讀到新的正解', filled ? 'success' : 'info')
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : '答案偵測失敗，請稍後再試', 'error')
+  } finally {
+    isProcessingOCR.value = false
+  }
 }
 
 const retryPrediction = async () => {

@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     web_dist: str = "/srv/web_dist"
     label_dist: str = ""
     yolo_url: str | None = None
+    google_vision_api_key: str | None = None
 
     # AI, through OpenCode Zen. Empty key means the AI endpoints answer 503
     # "not configured" and everything else works as before.
