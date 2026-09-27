@@ -74,16 +74,21 @@ class Provider:
     # {"role": "assistant_raw", "raw": ...}, {"role": "tool", "id": ..., "result": ...}.
 
     def _post(self, path: str, body: dict) -> dict:
+        # Each wire format carries the key its own way: Anthropic's /messages
+        # reads x-api-key and answers "Missing API key" to a Bearer token.
+        key = self.settings.opencode_api_key
+        auth = ({"x-api-key": key, "anthropic-version": "2023-06-01"} if path == "/messages"
+                else {"Authorization": f"Bearer {key}"})
         try:
             res = self.client.post(
                 self.settings.opencode_base_url.rstrip("/") + path,
-                headers={"Authorization": f"Bearer {self.settings.opencode_api_key}",
-                         "Content-Type": "application/json",
-                         "anthropic-version": "2023-06-01"},
+                headers={**auth, "Content-Type": "application/json"},
                 json=body,
             )
         except httpx.HTTPError as exc:
             raise AIError(f"連不到 AI 服務：{type(exc).__name__}") from exc
+        if res.status_code == 402:
+            raise AIError("AI 帳戶餘額不足，請到 OpenCode 儲值")
         if res.status_code >= 400:
             # The body can echo the request; keep only the start, never the key.
             raise AIError(f"AI 服務回應 {res.status_code}：{res.text[:200]}")

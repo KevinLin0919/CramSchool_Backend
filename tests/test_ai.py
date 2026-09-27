@@ -146,7 +146,8 @@ def test_anthropic_wire_format():
     def handler(request):
         seen["path"] = request.url.path
         seen["body"] = json.loads(request.content)
-        seen["auth"] = request.headers["authorization"]
+        seen["key"] = request.headers.get("x-api-key")
+        seen["bearer"] = request.headers.get("authorization")
         return httpx.Response(200, json={
             "content": [{"type": "text", "text": "好"},
                         {"type": "tool_use", "id": "t1", "name": "x", "input": {"a": 1}}],
@@ -154,7 +155,7 @@ def test_anthropic_wire_format():
 
     reply = _provider("anthropic", handler).complete(
         "sys", [{"role": "user", "text": "hi"}], tools=[Tool("x", "d", {"type": "object"})])
-    assert seen["path"].endswith("/messages") and seen["auth"] == "Bearer k"
+    assert seen["path"].endswith("/messages") and seen["key"] == "k" and seen["bearer"] is None
     assert seen["body"]["tools"][0]["input_schema"] == {"type": "object"}
     assert reply.text == "好" and reply.tool_calls[0].arguments == {"a": 1}
 
@@ -165,6 +166,7 @@ def test_openai_responses_wire_format():
     def handler(request):
         seen["path"] = request.url.path
         seen["body"] = json.loads(request.content)
+        seen["bearer"] = request.headers.get("authorization")
         return httpx.Response(200, json={
             "output": [{"type": "function_call", "call_id": "c", "name": "x", "arguments": "{}"},
                        {"type": "message", "content": [{"type": "output_text", "text": "ok"}]}],
@@ -173,6 +175,7 @@ def test_openai_responses_wire_format():
     reply = _provider("openai", handler).complete("sys", [{"role": "user", "text": "hi"}],
                                                   tools=[Tool("x", "d", {"type": "object"})])
     assert seen["path"].endswith("/responses") and seen["body"]["instructions"] == "sys"
+    assert seen["bearer"] == "Bearer k"
     assert reply.text == "ok" and reply.tool_calls[0].name == "x"
 
 
