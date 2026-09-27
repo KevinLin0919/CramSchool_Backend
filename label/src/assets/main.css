@@ -1,0 +1,8 @@
+@import './design-system.css';
+
+#app {
+  width: 100%;
+  max-width: none;   /*  關掉寬度上限 */
+  margin: 0;         /*  不要置中 */
+  padding: 0;        /*  讓各頁自己管 padding */
+}
