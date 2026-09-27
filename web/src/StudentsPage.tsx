@@ -68,6 +68,7 @@ export default function StudentsPage({ classId }: { classId?: number }) {
   if (!current) return <div className="card empty">還沒有班級。在 App 建立班級與名冊後，學生會出現在這裡。</div>;
 
   const watching = rows.filter((r) => r.watch).length;
+  const lastUnit = trend?.exams[trend.exams.length - 1]?.unit;
   const cols = "minmax(0,1.3fr) minmax(0,.8fr) minmax(0,.8fr) 150px minmax(0,1.1fr)";
 
   return (
@@ -93,17 +94,17 @@ export default function StudentsPage({ classId }: { classId?: number }) {
       <section className="card">
         <div className="table">
           <div className="tr th" style={{ gridTemplateColumns: cols }}>
-            <span>學生</span><span className="n">最近一次</span><span className="n">平均</span><span>趨勢</span><span>狀態</span>
+            <span>學生</span><span className="n">最近一次{lastUnit ? `（${lastUnit}）` : ""}</span><span className="n">平均</span><span>趨勢</span><span>狀態</span>
           </div>
           {rows.map((r) => (
             <button key={r.id} type="button" className="tr" style={{ gridTemplateColumns: cols, padding: "10px 12px" }} onClick={() => go(`/student/${r.id}`)}>
               <span style={{ fontWeight: 700 }}>{r.name}</span>
               <span className="n" style={{ color: r.last !== null && r.last < 0.5 ? "var(--bad-d)" : undefined, fontWeight: 700 }}>
-                {pct(r.last)}{r.lastUnit && <small>{r.lastUnit}</small>}
+                {pct(r.last)}{r.lastUnit && r.lastUnit !== lastUnit && <small>{r.lastUnit}</small>}
               </span>
               <span className="n">{pct(r.mean)}</span>
               <span>{r.rates.length >= 2 ? <Sparkline values={r.rates} /> : <span className="note">{r.rates.length ? "只有一次" : "—"}</span>}</span>
-              <span>{r.watch ? <span className="pill bad">{r.watch}</span> : r.rates.length ? <span className="pill ok">穩定</span> : <span className="pill muted">尚無考卷</span>}</span>
+              <span>{r.watch ? <span className="pill bad">{r.watch}</span> : !r.rates.length && <span className="pill muted">尚無考卷</span>}</span>
             </button>
           ))}
         </div>

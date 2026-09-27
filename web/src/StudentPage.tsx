@@ -43,8 +43,9 @@ export default function StudentPage({ studentId }: { studentId: number }) {
           <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
             <h1>{profile.student_name}</h1>
             {cls && cls.students.length > 1 && (
-              <select className="switch" aria-label="切換學生" value={studentId} onChange={(e) => go(`/student/${e.target.value}`)}>
-                {cls.students.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              <select className="switch" aria-label="切換同班學生" value="" onChange={(e) => go(`/student/${e.target.value}`)}>
+                <option value="" disabled>切換同班學生</option>
+                {cls.students.filter((s) => s.id !== studentId).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             )}
           </div>
