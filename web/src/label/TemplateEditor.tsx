@@ -83,6 +83,17 @@ export default function TemplateEditor({ templateId }: { templateId?: number }) 
 
   useEffect(() => () => { alive.current = false; }, []);
 
+  // Leaving mid-edit (to the report and back) keeps the work: what is on
+  // screen goes back into the draft the upload page will reopen.
+  const latest = useRef({ labels, name, unit, nameBox, nameBoxDirty });
+  latest.current = { labels, name, unit, nameBox, nameBoxDirty };
+  useEffect(() => () => {
+    const d = getDraft();
+    if (!d || d.id) return;
+    const { labels: ls, ...rest } = latest.current;
+    Object.assign(d, rest, { labels: ls.map(toTemplateLabel) });
+  }, []);
+
   // A saved template is loaded here; a fresh upload arrives through the draft.
   useEffect(() => {
     if (!templateId) {
