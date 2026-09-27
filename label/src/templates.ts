@@ -28,9 +28,6 @@ type TemplateDetail = TemplateSummary & {
 export type TemplateDraft = {
   id?: number; revision?: number; imageId?: number; pageIndex: number; pageCount: number
   name: string; unit: string; optionCount: number
-  // Editor-only: how a typed "2" is read. Not stored on the server, where
-  // each box's answer_type already carries the decision.
-  singleDigitAs: SingleDigitAs
   width: number; height: number; preview: string; blob: Blob
   labels: Label[]; nameBox?: Rect | null; nameBoxDirty: boolean
   // Retain the highest loaded number even when its box is deleted.
@@ -114,7 +111,7 @@ export async function readTemplate(id: number): Promise<TemplateDraft> {
   const blob = await masterBlob(id, undefined, page.page_index)
   return {
     id, revision: data.revision, imageId: page.image_id, pageIndex: page.page_index,
-    pageCount: data.page_count, name: data.exam_name, unit: data.unit ?? '', optionCount: data.option_count, singleDigitAs: 'choice',
+    pageCount: data.page_count, name: data.exam_name, unit: data.unit ?? '', optionCount: data.option_count,
     width: page.image_width, height: page.image_height, blob, preview: URL.createObjectURL(blob),
     labels: page.boxes.map(b => ({ ...toCanvas(b, page.image_width, page.image_height),
       questionNo: b.question_no, answer: b.answer, answerType: b.answer_type, answerTypeLocked: true, label: b.label })),
@@ -125,32 +122,31 @@ export async function readTemplate(id: number): Promise<TemplateDraft> {
   }
 }
 
-// How a lone number such as "2" reads on this paper: an option (①–④) or a
-// numeric answer. The detector only finds cells, so the type comes from the
-// answer the teacher types, and this is the one thing an answer cannot tell.
-export type SingleDigitAs = 'choice' | 'digit'
-
 const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩'
+const MARKS = ['O', 'o', '○', '◯', '圈', 'X', 'x', '✕', '✖', '✗', '×', '叉']
 
-// Follows app/coords.py (digits, circle/cross marks, CJK ideographs, else
-// text), plus the two shapes only a choice question has: a letter A–E and a
-// circled number.
-export function guessAnswerType(answer: string, optionCount = 4, singleDigitAs: SingleDigitAs = 'choice'): AnswerType {
+// Three kinds, the ones the app grades today: 是非 (mark), 選擇 (choice) and
+// 填空 (digit, numbers only for now). The detector finds cells but not their
+// kind, so the kind comes from the answer the teacher types. A lone number
+// within the option count reads as an option — on these papers "2" is
+// almost always ② — and the teacher can override any cell or a run of them.
+export function guessAnswerType(answer: string, optionCount = 4): AnswerType {
   const value = answer.trim()
-  if (!value) return 'text'
+  if (!value) return 'choice'
+  if (MARKS.includes(value)) return 'mark'
   if (/^[A-E]$/i.test(value) || CIRCLED.includes(value)) return 'choice'
-  if (/^(?:[1-9]|10)$/.test(value) && Number(value) <= optionCount && singleDigitAs === 'choice') return 'choice'
-  if (/^\p{Decimal_Number}+$/u.test(value)) return 'digit'
-  if (['O', 'o', '○', '◯', '圈', 'X', 'x', '✕', '✗', '×', '叉'].includes(value)) return 'mark'
-  if (/^[一-鿿]+$/u.test(value)) return 'chinese'
-  return 'text'
+  if (/^(?:[1-9]|10)$/.test(value) && Number(value) <= optionCount) return 'choice'
+  return 'digit'
 }
 export function updateAnswerType(label: Label) {
   if (!label.answerTypeLocked) label.answerType = guessAnswerType(label.answer)
 }
 export function normalizedAnswer(label: Label, optionCount: number): string {
   const value = label.answer.trim()
-  if (label.answerType !== 'choice' || !value) return value
+  if (!value) return value
+  if (label.answerType === 'mark' && !MARKS.includes(value)) throw new Error('是非題正解請輸入 ○ 或 ✕')
+  if (label.answerType === 'digit' && !/^\d+$/.test(value)) throw new Error('填空題目前只支援整數答案')
+  if (label.answerType !== 'choice') return value
   const number = /^[A-E]$/i.test(value) ? value.toUpperCase().charCodeAt(0) - 64
     : CIRCLED.includes(value) ? CIRCLED.indexOf(value) + 1
     : /^(?:[1-9]|10)$/.test(value) ? Number(value) : NaN

@@ -136,14 +136,8 @@
             <label class="hint-text">考卷名稱<input v-model="draft.name" class="ds-input ds-input--sm" maxlength="255" :disabled="locked" /></label>
             <label class="hint-text">單元<input v-model="draft.unit" class="ds-input ds-input--sm" maxlength="40" placeholder="選填，最多 40 字" :disabled="locked" /></label>
             <label class="hint-text">選項數<input v-model.number="draft.optionCount" class="ds-input ds-input--sm ds-input--mono" type="number" min="2" max="10" step="1" :disabled="locked" /></label>
-            <label class="hint-text">單一數字的正解視為
-              <select v-model="draft.singleDigitAs" class="ds-input ds-input--sm" :disabled="locked">
-                <option value="choice">選擇題（① ② ③ ④）</option>
-                <option value="digit">數字題（計算、填空）</option>
-              </select>
-            </label>
           </div>
-          <p v-if="readOnly" class="ds-banner ds-banner--warning">多頁模板請在 App 編輯（目前顯示第一頁）</p>
+          <p v-if="readOnly" class="ds-banner ds-banner--warning">這份考卷有多頁，網頁目前只能檢視第一頁</p>
           <p v-if="invalidMetadata" class="hint-text field-error">請填入考卷名稱，單元最多 40 字，選項數須為 2–10。</p>
           <p class="ds-eyebrow panel-label">工具</p>
           <div class="batch-grid">
@@ -161,17 +155,9 @@
             >
               <ArrowUpDown :size="14" /> 自動排序
             </button>
-            <button
-              disabled
-              title="此環境未啟用文字辨識，請手動輸入正解"
-              class="ds-btn ds-btn--sm"
-            >
-              <ScanText :size="14" /> 答案偵測
-            </button>
           </div>
-          <p class="hint-text">此環境未啟用文字辨識，請手動輸入正解</p>
           <div v-if="draft?.nameBox" class="class-row">
-            <span class="ds-badge">姓名欄（紫色，不編號）</span>
+            <span class="ds-badge">已框選姓名欄</span>
             <button class="ds-btn ds-btn--danger ds-btn--sm" :disabled="locked" @click="removeNameBox">刪除姓名框</button>
           </div>
         </div>
@@ -184,8 +170,7 @@
               {{ checked.length ? `已選 ${checked.length} 格` : '全選' }}
             </label>
             <select v-model="batchType" class="ds-input ds-input--sm" :disabled="locked || !checked.length" aria-label="整批設定題型">
-              <option value="choice">選擇</option><option value="mark">是非</option>
-              <option value="digit">數字</option><option value="chinese">國字</option><option value="text">文字</option>
+              <option value="choice">選擇題</option><option value="mark">是非題</option><option value="digit">填空題</option>
             </select>
             <button class="ds-btn ds-btn--sm" :disabled="locked || !checked.length" @click="applyBatchType">套用題型</button>
           </div>
@@ -211,7 +196,7 @@
                   :disabled="locked"
                   :aria-invalid="!!labelError(label)"
                   :title="labelError(label)"
-                  :placeholder="label.answerType === 'choice' ? 'A–E / 數字' : ''"
+                  :placeholder="({ choice: '例：B 或 2', mark: '○ 或 ✕', digit: '數字' } as Record<string, string>)[label.answerType ?? ''] ?? ''"
                   @input="inferAnswerType(label)"
                   class="ds-input ds-input--sm ds-input--mono expected-value"
                   :ref="(el) => { if(el) inputRefs[index] = el as HTMLInputElement }"
@@ -226,8 +211,8 @@
               </button>
               <label class="label-type hint-text">題型
                 <select v-model="label.answerType" class="ds-input ds-input--sm" :disabled="locked" @change="label.answerTypeLocked = true" @click.stop>
-                  <option value="choice">選擇</option><option value="mark">是非</option>
-                  <option value="digit">數字</option><option value="chinese">國字</option><option value="text">文字</option>
+                  <option value="choice">選擇題</option><option value="mark">是非題</option><option value="digit">填空題</option>
+                  <option v-if="!['choice', 'mark', 'digit'].includes(label.answerType ?? '')" :value="label.answerType">其他</option>
                 </select>
               </label>
               <p v-if="labelError(label)" class="hint-text field-error" role="alert">{{ labelError(label) }}</p>
@@ -239,7 +224,6 @@
         <div class="ds-card ds-card--sunken panel-card">
           <div class="panel-actions">
             <button @click="clearLabels" :disabled="locked" class="ds-btn ds-btn--danger ds-btn--sm">清除標註</button>
-            <button @click="exportLabels" class="ds-btn ds-btn--sm"><Download :size="14" /> 匯出標註</button>
           </div>
           <p v-if="saveError" class="ds-banner ds-banner--danger" role="alert">{{ saveError }}
             <button v-if="draft?.id" class="ds-btn ds-btn--sm" @click="reloadTemplate">重新載入</button>
@@ -258,8 +242,8 @@ import { ref, computed, onMounted, watch, nextTick, onBeforeUpdate, onUnmounted 
 import { useRoute, useRouter } from 'vue-router'
 import {
   Crosshair, Move, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
-  RotateCw, ArrowUpDown, ScanText, X, Check, Clock,
-  Download, Save, UserRound,
+  RotateCw, ArrowUpDown, X, Check, Clock,
+  Save, UserRound,
 } from 'lucide-vue-next'
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../constants'
 import { getStoreData, hasData, updateMasterImage } from '../stores/resultsStore'
@@ -354,7 +338,7 @@ const questionNumbers = computed(() => {
 })
 const inferAnswerType = (label: Label) => {
   if (!label.answerTypeLocked) {
-    label.answerType = guessAnswerType(label.expectedAnswer ?? '', draft.value?.optionCount ?? 4, draft.value?.singleDigitAs ?? 'choice')
+    label.answerType = guessAnswerType(label.expectedAnswer ?? '', draft.value?.optionCount ?? 4)
   }
 }
 
@@ -367,9 +351,9 @@ const displayedImages = computed(() =>
 )
 const currentImage = computed(() => displayedImages.value[currentImageIndex.value])
 
-// A lone "2" changes meaning with these two settings, so every cell the
-// teacher has not set by hand is read again.
-watch(() => [draft.value?.optionCount, draft.value?.singleDigitAs], () => {
+// A lone "2" is an option only while it is within the option count, so a
+// change there re-reads every cell the teacher has not set by hand.
+watch(() => draft.value?.optionCount, () => {
   currentImage.value?.labels?.forEach(inferAnswerType)
 })
 
@@ -400,7 +384,7 @@ const toggleCheck = (index: number, event: MouseEvent) => {
 }
 const applyBatchType = () => {
   checked.value.forEach(label => { label.answerType = batchType.value; label.answerTypeLocked = true })
-  showToast(`已將 ${checked.value.length} 格設為「${({ choice: '選擇', mark: '是非', digit: '數字', chinese: '國字', text: '文字' } as const)[batchType.value]}」`, 'success')
+  showToast(`已將 ${checked.value.length} 格設為「${({ choice: '選擇題', mark: '是非題', digit: '填空題' } as Record<string, string>)[batchType.value]}」`, 'success')
   checked.value = []
 }
 // Removed or re-detected cells must not linger in the selection.
@@ -1002,7 +986,7 @@ const fetchPredictionsForImage = async (img: ImageData) => {
         width: boxWidth,
         height: boxHeight,
         confidence: Number(detection?.confidence ?? detection?.conf) || undefined,
-        answer: '', expectedAnswer: '', answerType: 'text'
+        answer: '', expectedAnswer: '', answerType: 'choice'
       }
     })
 
@@ -1069,7 +1053,7 @@ const endDrawing = () => {
       y: Math.min(startY.value, currentY.value),
       width: Math.abs(width),
       height: Math.abs(height),
-      answer: '', expectedAnswer: '', answerType: 'text'
+      answer: '', expectedAnswer: '', answerType: 'choice'
     }
 
     if (currentMode.value === 'name' && draft.value) {
@@ -1267,33 +1251,6 @@ const nextImage = () => {
 
 const goToUpload = () => {
   router.push({ name: 'upload' })
-}
-
-const exportLabels = () => {
-  const allImages = [
-    ...(masterKeyImage.value ? [masterKeyImage.value] : []),
-    ...studentImages.value
-  ]
-  const yoloData = allImages.map(img => {
-    const labels = img.labels || []
-    return {
-      image: img.name,
-      role: img.role,
-      annotations: labels.map(label => ({
-        class: label.class,
-        bbox: [label.x, label.y, label.width, label.height],
-        answer: label.expectedAnswer || label.answer || ''
-      }))
-    }
-  })
-
-  const blob = new Blob([JSON.stringify(yoloData, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'yolo_labels.json'
-  a.click()
-  URL.revokeObjectURL(url)
 }
 
 const removeNameBox = () => {

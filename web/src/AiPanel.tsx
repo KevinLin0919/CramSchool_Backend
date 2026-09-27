@@ -61,7 +61,7 @@ export function ExamSummary({ examUuid }: { examUuid: string }) {
     return (
       <section className="ai">
         <Header title="AI 考試摘要" />
-        <p className="note">伺服器尚未設定 AI 金鑰。設定後，這裡會寫出這次考試的重點與下堂課建議。</p>
+        <p className="note">AI 分析尚未啟用。啟用後，這裡會寫出這次考試的重點與下堂課建議。</p>
       </section>
     );
   }

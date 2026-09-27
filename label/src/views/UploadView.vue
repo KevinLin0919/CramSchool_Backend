@@ -325,7 +325,7 @@ const addFiles = async (_target: 'master' | 'students', files: File[]) => {
     if (!active) { URL.revokeObjectURL(normalized.preview); return }
     const previewData = { file, name: file.name, preview: normalized.preview }
     openDraft({ ...normalized, name: file.name, pageIndex: 0, pageCount: 1,
-      unit: '', optionCount: 4, singleDigitAs: 'choice', labels: [], nameBoxDirty: false, maxQuestionNo: 0 })
+      unit: '', optionCount: 4, labels: [], nameBoxDirty: false, maxQuestionNo: 0 })
     masterFile.value = previewData
     isFromTemplate.value = false
     masterExamName.value = file.name.replace(/\.[^.]+$/, '')
