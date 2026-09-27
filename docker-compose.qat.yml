@@ -30,7 +30,11 @@ services:
     networks: [qat_net]
 
   api:
-    build: .
+    build:
+      context: .
+      args:
+        BRAND: 閱卷通
+        WITH_LABEL: "1"
     image: cramqat_api
     container_name: cramqat_api
     restart: always
@@ -40,6 +44,8 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://cram:${POSTGRES_PASSWORD}@db:5432/cramqat
       DATA_DIR: /data
+      YOLO_URL: http://yolo:8082
+      LABEL_DIST: /srv/label_dist
       # This network's gateway, which is what Funnel traffic appears to come
       # from once Docker's proxy has forwarded it. See the pinned subnet below.
       TRUSTED_PROXIES: '["172.31.241.1"]'
@@ -63,6 +69,18 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+    networks: [qat_net]
+
+  yolo:
+    # 主機上既有映像，不在此 repo 建置。
+    image: cram_yolo_api
+    container_name: cramqat_yolo
+    cpus: "4"
+    mem_limit: 3g
+    restart: always
     logging:
       driver: json-file
       options: {max-size: "10m", max-file: "3"}

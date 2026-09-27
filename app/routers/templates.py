@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..config import Settings, get_settings
 from ..db import get_db
 from ..deps import get_store
+from ..detection import DetectionRequest, DetectionResponse, detect_layout
 from ..models import AnswerBox, ExamTemplate, Image, Teacher, TemplatePage
 from ..schemas import (
     AnswerBoxOut,
@@ -170,6 +171,15 @@ def list_templates(
     return TemplateListResponse(templates=[_summary(r) for r in rows], sync_cursor=cursor)
 
 
+@router.post("/detect", response_model=DetectionResponse, summary="偵測答案區")
+def detect_template(
+    payload: DetectionRequest,
+    settings: Settings = Depends(get_settings),
+    _: Teacher = Depends(current_teacher),
+) -> DetectionResponse:
+    return detect_layout(payload, settings)
+
+
 @router.get("/{template_id}", response_model=TemplateDetail, summary="取得模板細節")
 def get_template(
     template_id: int,
@@ -197,9 +207,12 @@ def create_template(
         exam_name=payload.exam_name.strip(),
         grade=payload.grade,
         subject=payload.subject,
+        unit=payload.unit,
+        option_count=payload.option_count if payload.option_count is not None else 4,
         created_by=teacher.id,
         revision=1,
     )
+    _set_name_box(template, payload.name_box)
     db.add(template)
     db.flush()
     _apply_pages(db, template, payload.pages)

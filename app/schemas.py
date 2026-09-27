@@ -125,10 +125,23 @@ class TemplatePageOut(ORMModel):
     boxes: list[AnswerBoxOut]
 
 
+class NameBox(BaseModel):
+    """Where the student writes their name, as fractions of one page."""
+
+    page_index: int = Field(ge=0)
+    x: Fraction
+    y: Fraction
+    w: Annotated[float, Field(gt=0, le=1.1)]
+    h: Annotated[float, Field(gt=0, le=1.1)]
+
+
 class TemplateCreate(BaseModel):
     exam_name: str = Field(min_length=1, max_length=255)
     grade: str | None = Field(default=None, max_length=20)
     subject: str | None = Field(default=None, max_length=20)
+    unit: str | None = Field(default=None, max_length=40)
+    option_count: int | None = Field(default=None, ge=2, le=10)
+    name_box: NameBox | None = None
     pages: list[TemplatePageIn] = Field(min_length=1)
 
     @field_validator("pages")
@@ -138,16 +151,6 @@ class TemplateCreate(BaseModel):
         if len(indexes) != len(set(indexes)):
             raise ValueError("頁碼不可重複")
         return pages
-
-
-class NameBox(BaseModel):
-    """Where the student writes their name, as fractions of one page."""
-
-    page_index: int = Field(ge=0)
-    x: Fraction
-    y: Fraction
-    w: Annotated[float, Field(gt=0, le=1.1)]
-    h: Annotated[float, Field(gt=0, le=1.1)]
 
 
 class TemplateUpdate(BaseModel):

@@ -1,0 +1,150 @@
+import base64
+from functools import partial
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+
+from app import detection
+from app.config import get_settings
+from app.main import create_app
+from app.routers import templates
+
+
+@pytest.fixture
+def detection_upstream(monkeypatch):
+    monkeypatch.setattr(get_settings(), "yolo_url", "http://yolo.test:8082")
+
+    def install(handler):
+        monkeypatch.setattr(
+            templates, "detect_layout",
+            partial(detection.detect_layout, transport=httpx.MockTransport(handler)),
+        )
+
+    return install
+
+
+def test_detect_disabled(client, auth, monkeypatch):
+    monkeypatch.setattr(get_settings(), "yolo_url", None)
+    res = client.post("/api/v1/templates/detect", json={"image_base64": ""}, headers=auth)
+    assert res.status_code == 503
+    assert res.json()["detail"] == "此環境未啟用版面偵測"
+
+
+def test_detect_requires_login(client):
+    res = client.post("/api/v1/templates/detect", json={"image_base64": ""})
+    assert res.status_code == 401
+
+
+def test_detect_only_returns_boxes(client, auth, make_png, detection_upstream):
+    encoded = base64.b64encode(make_png()).decode()
+
+    def upstream(request):
+        import json
+
+        assert str(request.url) == "http://yolo.test:8082/predict"
+        assert json.loads(request.content) == {"image_base64": encoded}
+        assert request.extensions["timeout"]["read"] == 90
+        return httpx.Response(200, json={
+            "detections": [{"bbox": [10, 20, 30, 40], "confidence": 0.9, "class": "answer"}],
+            "num_detections": 1,
+        })
+
+    detection_upstream(upstream)
+    res = client.post("/api/v1/templates/detect", json={"image_base64": encoded}, headers=auth)
+    assert res.status_code == 200
+    assert res.json() == {"detections": [{"bbox": [10, 20, 30, 40], "confidence": 0.9}]}
+
+
+@pytest.mark.parametrize("body", [
+    {}, {"detections": "invalid"},
+    {"detections": [{"bbox": [1, 2, 3], "confidence": 0.9}]},
+    {"detections": [{"bbox": [3, 2, 1, 4], "confidence": 0.9}]},
+    {"detections": [{"bbox": [1, 2, 3, 4], "confidence": "high"}]},
+])
+def test_detect_invalid_upstream(client, auth, detection_upstream, body):
+    detection_upstream(lambda _: httpx.Response(200, json=body))
+    res = client.post("/api/v1/templates/detect", json={"image_base64": ""}, headers=auth)
+    assert res.status_code == 502
+
+
+def test_detect_upstream_failure_releases_slot(client, auth, detection_upstream):
+    detection_upstream(lambda _: httpx.Response(500))
+    for _ in range(3):
+        res = client.post("/api/v1/templates/detect", json={"image_base64": ""}, headers=auth)
+        assert res.status_code == 502
+
+
+def test_detect_timeout(client, auth, detection_upstream):
+    def timeout(request):
+        raise httpx.ReadTimeout("timeout", request=request)
+
+    detection_upstream(timeout)
+    assert client.post("/api/v1/templates/detect", json={"image_base64": ""},
+                       headers=auth).status_code == 502
+
+
+def test_detect_too_large(client, auth):
+    res = client.post("/api/v1/templates/detect", headers=auth,
+                      json={"image_base64": "a" * (20 * 1024 * 1024 + 1)})
+    assert res.status_code == 413
+
+
+def test_detect_busy(client, auth, detection_upstream, monkeypatch):
+    class Busy:
+        def acquire(self, timeout):
+            assert timeout == 30
+            return False
+
+    monkeypatch.setattr(detection, "_slots", Busy())
+    res = client.post("/api/v1/templates/detect", json={"image_base64": ""}, headers=auth)
+    assert res.status_code == 503
+    assert res.json()["detail"] == "偵測忙碌中，請稍後再試"
+
+
+def test_create_template_metadata(client, auth, uploaded_image):
+    image = uploaded_image()
+    metadata = {"unit": "分數", "option_count": 5,
+                "name_box": {"page_index": 0, "x": 0.1, "y": 0.1, "w": 0.2, "h": 0.05}}
+    res = client.post("/api/v1/templates", headers=auth, json={
+        "exam_name": "網頁模板", **metadata,
+        "pages": [{"page_index": 0, "image_id": image["id"], "boxes": []}],
+    })
+    assert res.status_code == 201, res.text
+    fetched = client.get(f"/api/v1/templates/{res.json()['id']}", headers=auth).json()
+    for key, value in metadata.items():
+        assert res.json()[key] == value
+        assert fetched[key] == value
+
+
+@pytest.mark.parametrize("web,label", [(False, True), (True, True), (True, False), (False, False)])
+def test_static_mounts_and_headers(tmp_path, monkeypatch, web, label):
+    for name, enabled in (("web", web), ("label", label)):
+        dist = tmp_path / name
+        dist.mkdir()
+        (dist / "index.html").write_text(f"<html>{name}</html>")
+        monkeypatch.setenv(f"{name.upper()}_DIST", str(dist) if enabled else "")
+    get_settings.cache_clear()
+    try:
+        with TestClient(create_app()) as client:
+            for name, enabled in (("web", web), ("label", label)):
+                res = client.get(f"/{name}/")
+                assert res.status_code == (200 if enabled else 404)
+                if enabled:
+                    assert "connect-src 'self'" in res.headers["Content-Security-Policy"]
+                    assert res.headers["X-Frame-Options"] == "DENY"
+                    assert res.headers["Cache-Control"] == "no-cache"
+            assert "Content-Security-Policy" not in client.get("/health").headers
+    finally:
+        get_settings.cache_clear()
+
+
+def test_label_without_index_is_not_mounted(tmp_path, monkeypatch):
+    monkeypatch.setenv("LABEL_DIST", str(tmp_path))
+    monkeypatch.setenv("WEB_DIST", "")
+    get_settings.cache_clear()
+    try:
+        with TestClient(create_app()) as client:
+            assert client.get("/label/").status_code == 404
+    finally:
+        get_settings.cache_clear()
