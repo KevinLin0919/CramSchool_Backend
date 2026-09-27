@@ -52,7 +52,8 @@ export function ItemBars({ items, selected, onSelect }: { items: ItemBar[]; sele
         markLine: hasMark ? {
           symbol: "none", silent: true,
           lineStyle: { color: "#c9c1ef", type: "dashed", width: 1 },
-          label: { formatter: "亂猜基準 50%", position: "insideStartTop", color: C.mark, fontSize: 11, backgroundColor: "#ffffff", padding: [1, 4] },
+          // Named in the legend below the chart; a label on the line sat over the first bar.
+          label: { show: false },
           data: [{ yAxis: 0.5 }],
         } : undefined,
       }],

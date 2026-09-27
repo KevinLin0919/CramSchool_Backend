@@ -81,6 +81,18 @@ h2 { margin: 0; font-size: 16px; font-weight: 700; }
 .row2 { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+/* Two columns that stack on their own: a short card on one side never leaves
+   a gap beside a tall one, as grid rows did. */
+.cols { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.legend i.dash { width: 16px; height: 0; border-radius: 0; background: none; border-top: 2px dashed #c9c1ef; }
+/* Overview: three equal columns in both rows, so the page lines up. */
+.ov { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+.ov .wide { grid-column: span 2; }
+.statcard { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px 22px; display: flex; flex-direction: column; gap: 10px; text-align: left; color: var(--ink); }
+.statcard:hover { border-color: var(--choice-l); }
+.statcard .big { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 28px; font-weight: 700; line-height: 1.1; }
+.statcard .big small { font-family: var(--sans); font-size: 14px; font-weight: 500; color: var(--ink3); margin-left: 4px; }
+.todo.clear { background: var(--panel); border-color: var(--line); }
 .seg { display: flex; background: var(--sunk); border-radius: 10px; padding: 3px; gap: 2px; }
 .seg button { border: 0; border-radius: 8px; padding: 6px 12px; background: transparent; color: var(--ink2); font-size: 13px; }
 .seg button.on { background: var(--panel); color: var(--ink); font-weight: 700; box-shadow: 0 1px 2px rgba(22,33,27,.08); }
@@ -156,7 +168,8 @@ button.tr:hover { background: var(--soft); }
 .profile .big { width: 64px; height: 64px; border-radius: 20px; background: var(--brand-s); color: var(--brand-d); display: grid; place-items: center; font-family: var(--sans); font-weight: 700; font-size: 28px; }
 svg text { font-family: inherit; }
 @media (max-width: 1100px) {
-  .row2, .split, .row3 { grid-template-columns: 1fr; }
+  .row2, .split, .row3, .cols, .ov { grid-template-columns: 1fr; }
+  .ov .wide { grid-column: auto; }
 }
 @media (max-width: 760px) {
   .shell { grid-template-columns: 1fr; }

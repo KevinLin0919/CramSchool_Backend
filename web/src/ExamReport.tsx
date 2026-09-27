@@ -93,51 +93,32 @@ export default function ExamReport({ uuid }: { uuid: string }) {
 
       {small && <div className="callout" style={{ background: "var(--warn-s)", color: "var(--warn)" }}>這次只有 {n} 份。少於 10 份時只顯示人數，不計算百分比與鑑別度。</div>}
 
-      <div className="row2">
-        <section className="card">
-          <div className="title" style={{ alignItems: "center" }}>
-            <div><h2>每題答對率</h2><span className="note">點一題看選項分布與誰選了什麼</span></div>
-            <div className="seg" role="group" aria-label="題型">
-              {(["all", "mark", "choice"] as const).map((f) => (
-                <button key={f} type="button" className={filter === f ? "on" : ""} onClick={() => setFilter(f)}>
-                  {f === "all" ? "全部" : f === "mark" ? "是非" : "選擇"} {counts[f]}
-                </button>
-              ))}
-            </div>
-          </div>
-          <ItemBars
-            items={items.map((i) => ({ q: i.question_no, type: i.answer_type, correct: i.correct, answered: i.answered, flags: i.flags, flagged: notable(i) }))}
-            selected={selected}
-            onSelect={setSelected}
-          />
-          <div className="legend">
-            <span><i style={{ background: "var(--mark-l)" }} />是非題</span>
-            <span><i style={{ background: "var(--choice)" }} />選擇題</span>
-            <span><i style={{ background: "var(--bad)" }} />值得注意</span>
-          </div>
-        </section>
-        <ExamSummary examUuid={uuid} />
-      </div>
-
-      <div className="row2">
-        {item ? <ItemDetail uuid={uuid} item={item} small={small} /> : <div />}
+      <div className="cols">
         <div className="col">
           <section className="card">
-            <div className="title"><h2>答對題數分布</h2><span>{n} 份</span></div>
-            <Histogram data={report.distribution} total={report.total} median={report.median} mean={report.mean}
-              selected={scoreFilter} onSelect={(c) => { setScoreFilter(c); setAllStudents(true); }} />
+            <div className="title" style={{ alignItems: "center" }}>
+              <div><h2>每題答對率</h2><span className="note">點一題看選項分布與誰選了什麼</span></div>
+              <div className="seg" role="group" aria-label="題型">
+                {(["all", "mark", "choice"] as const).map((f) => (
+                  <button key={f} type="button" className={filter === f ? "on" : ""} onClick={() => setFilter(f)}>
+                    {f === "all" ? "全部" : f === "mark" ? "是非" : "選擇"} {counts[f]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <ItemBars
+              items={items.map((i) => ({ q: i.question_no, type: i.answer_type, correct: i.correct, answered: i.answered, flags: i.flags, flagged: notable(i) }))}
+              selected={selected}
+              onSelect={setSelected}
+            />
+            <div className="legend">
+              <span><i style={{ background: "var(--mark-l)" }} />是非題</span>
+              <span><i style={{ background: "var(--choice)" }} />選擇題</span>
+              <span><i style={{ background: "var(--bad)" }} />值得注意</span>
+              {counts.mark > 0 && <span><i className="dash" />亂猜基準 50%</span>}
+            </div>
           </section>
-          <section className="card">
-            <div className="title"><h2>需要關注</h2><span>比自己平常低 15% 以上</span></div>
-            {report.watch.length === 0 && <span className="note">{report.previous ? "沒有學生明顯退步。" : "第一次考試，還沒有可以比較的紀錄。"}</span>}
-            {report.watch.slice(0, 5).map((w) => (
-              <button key={w.student_id} type="button" className="watch" onClick={() => go(`/student/${w.student_id}`)}>
-                <span className="avatar">{(w.student_name ?? "?").slice(0, 1)}</span>
-                <span><b>{w.student_name}</b><small>平常 {pct(w.usual_rate)} → 這次 {pct(w.rate)}</small></span>
-                <em>−{Math.round(w.drop * 100)}%</em>
-              </button>
-            ))}
-          </section>
+          {item && <ItemDetail uuid={uuid} item={item} small={small} />}
           <section className="card">
             <div className="title" style={{ alignItems: "center" }}>
               <h2>學生</h2>
@@ -159,6 +140,25 @@ export default function ExamReport({ uuid }: { uuid: string }) {
                 {allStudents ? "收起" : `顯示全部 ${report.paper_list.length} 位`}
               </button>
             )}
+          </section>
+        </div>
+        <div className="col">
+          <ExamSummary examUuid={uuid} />
+          <section className="card">
+            <div className="title"><h2>答對題數分布</h2><span>{n} 份</span></div>
+            <Histogram data={report.distribution} total={report.total} median={report.median} mean={report.mean}
+              selected={scoreFilter} onSelect={(c) => { setScoreFilter(c); setAllStudents(true); }} />
+          </section>
+          <section className="card">
+            <div className="title"><h2>需要關注</h2><span>比自己平常低 15% 以上</span></div>
+            {report.watch.length === 0 && <span className="note">{report.previous ? "沒有學生明顯退步。" : "第一次考試，還沒有可以比較的紀錄。"}</span>}
+            {report.watch.slice(0, 5).map((w) => (
+              <button key={w.student_id} type="button" className="watch" onClick={() => go(`/student/${w.student_id}`)}>
+                <span className="avatar">{(w.student_name ?? "?").slice(0, 1)}</span>
+                <span><b>{w.student_name}</b><small>平常 {pct(w.usual_rate)} → 這次 {pct(w.rate)}</small></span>
+                <em>−{Math.round(w.drop * 100)}%</em>
+              </button>
+            ))}
           </section>
         </div>
       </div>

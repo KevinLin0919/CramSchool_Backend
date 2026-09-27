@@ -10,7 +10,7 @@ type Row = {
 
 // The same line the exam report's 需要關注 draws: well under the student's
 // own usual, or under half on the latest paper.
-function watchReason(rates: number[]): string | null {
+export function watchReason(rates: number[]): string | null {
   const last = rates[rates.length - 1];
   if (last === undefined) return null;
   const before = rates.slice(0, -1);
