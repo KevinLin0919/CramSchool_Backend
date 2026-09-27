@@ -7,6 +7,7 @@ import OverviewPage from "./OverviewPage";
 import ExamList from "./ExamList";
 import ExamReport from "./ExamReport";
 import StudentPage from "./StudentPage";
+import StudentsPage from "./StudentsPage";
 import ClassPage from "./ClassPage";
 import TemplatesPage from "./label/TemplatesPage";
 import TemplateEditor from "./label/TemplateEditor";
@@ -79,7 +80,7 @@ export default function App() {
   const nav = [
     { key: "overview", text: "總覽", icon: Icon.overview, path: "/overview" },
     { key: "exams", text: "考試", icon: Icon.exam, path: "/exams", also: ["exam"] },
-    { key: "student", text: "學生", icon: Icon.student, path: classes[0]?.students[0] ? `/student/${classes[0].students[0].id}` : "/overview" },
+    { key: "students", text: "學生", icon: Icon.student, path: "/students", also: ["student"] },
     { key: "class", text: "單元趨勢", icon: Icon.trend, path: classes[0] ? `/class/${classes[0].id}` : "/overview" },
   ];
 
@@ -126,6 +127,7 @@ export default function App() {
         ) :
          route.kind === "exam" && route.id ? <ExamReport uuid={route.id} /> :
          route.kind === "student" && route.id ? <StudentPage studentId={Number(route.id)} /> :
+         route.kind === "students" ? <StudentsPage classId={route.id ? Number(route.id) : undefined} /> :
          route.kind === "class" && route.id ? <ClassPage classId={Number(route.id)} /> :
          route.kind === "exams" ? <ExamList /> :
          <OverviewPage />}

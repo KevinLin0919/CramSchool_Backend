@@ -1,6 +1,6 @@
 // A thin React wrapper over ECharts, with only the pieces these pages use so
 // the bundle stays small. One theme for every chart: the app's palette, the
-// Noto Sans TC face for words and IBM Plex Mono for figures.
+// Noto Sans TC face for words and Inter (tabular) for figures.
 import { useEffect, useRef } from "react";
 import * as echarts from "echarts/core";
 import { BarChart, LineChart } from "echarts/charts";
@@ -16,7 +16,7 @@ export const C = {
   bad: "#c8412f", badL: "#e9a397", muted: "#b9c3bd", low: "#b7c9bd",
 };
 export const SANS = '"Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif';
-export const MONO = '"IBM Plex Mono", Menlo, Consolas, monospace';
+export const MONO = '"Inter", "Noto Sans TC", system-ui, sans-serif';
 
 echarts.registerTheme("fudao", {
   color: [C.ink, C.choice, C.mark, C.bad, C.muted],

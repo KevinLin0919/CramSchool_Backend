@@ -436,6 +436,7 @@
 
 /* The editor sits inside the report, so its surfaces and ink are the report's. */
 .tpl {
+  --font-mono: var(--mono);
   --surface-page: var(--ground); --surface-card: var(--panel); --surface-sunken: var(--sunk);
   --surface-hover: var(--sunk); --surface-active: var(--line2);
   --border-default: var(--line); --border-strong: #cfdad3;

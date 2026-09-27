@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, Profile, Trend } from "./api";
+import { api, ClassRoster, Profile, Trend } from "./api";
 import { go, label, pct } from "./App";
 import { LineChart } from "./charts";
 import { ParentNote } from "./AiPanel";
@@ -7,13 +7,15 @@ import { ParentNote } from "./AiPanel";
 export default function StudentPage({ studentId }: { studentId: number }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [trend, setTrend] = useState<Trend | null>(null);
+  const [cls, setCls] = useState<ClassRoster | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     setProfile(null); setTrend(null);
     api.profile(studentId).then(setProfile).catch((e) => setError(e.message));
     api.classes().then((cs) => {
-      const cls = cs.find((c) => c.students.some((s) => s.id === studentId));
-      if (cls) api.trend(cls.id).then(setTrend).catch(() => setTrend(null));
+      const found = cs.find((c) => c.students.some((s) => s.id === studentId)) ?? null;
+      setCls(found);
+      if (found) api.trend(found.id).then(setTrend).catch(() => setTrend(null));
     }).catch(() => undefined);
   }, [studentId]);
   if (error) return <div className="card empty">{error}</div>;
@@ -34,8 +36,18 @@ export default function StudentPage({ studentId }: { studentId: number }) {
       <div className="profile">
         <div className="big">{(profile.student_name ?? "?").slice(0, 1)}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
-          <span className="crumb">學生</span>
-          <h1>{profile.student_name}</h1>
+          <span className="crumb">
+            <button type="button" className="crumblink" onClick={() => go(cls ? `/students/${cls.id}` : "/students")}>學生</button>
+            {cls && <> / {cls.name}</>}
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+            <h1>{profile.student_name}</h1>
+            {cls && cls.students.length > 1 && (
+              <select className="switch" aria-label="切換學生" value={studentId} onChange={(e) => go(`/student/${e.target.value}`)}>
+                {cls.students.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            )}
+          </div>
         </div>
         {overall !== null && classRate !== null && overall < classRate - 0.1 && <span className="pill bad" style={{ fontSize: 13, padding: "6px 12px" }}>平均比班上低 {Math.round((classRate - overall) * 100)}%</span>}
       </div>
