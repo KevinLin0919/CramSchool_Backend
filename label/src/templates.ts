@@ -28,6 +28,9 @@ type TemplateDetail = TemplateSummary & {
 export type TemplateDraft = {
   id?: number; revision?: number; imageId?: number; pageIndex: number; pageCount: number
   name: string; unit: string; optionCount: number
+  // Editor-only: how a typed "2" is read. Not stored on the server, where
+  // each box's answer_type already carries the decision.
+  singleDigitAs: SingleDigitAs
   width: number; height: number; preview: string; blob: Blob
   labels: Label[]; nameBox?: Rect | null; nameBoxDirty: boolean
   // Retain the highest loaded number even when its box is deleted.
@@ -111,7 +114,7 @@ export async function readTemplate(id: number): Promise<TemplateDraft> {
   const blob = await masterBlob(id, undefined, page.page_index)
   return {
     id, revision: data.revision, imageId: page.image_id, pageIndex: page.page_index,
-    pageCount: data.page_count, name: data.exam_name, unit: data.unit ?? '', optionCount: data.option_count,
+    pageCount: data.page_count, name: data.exam_name, unit: data.unit ?? '', optionCount: data.option_count, singleDigitAs: 'choice',
     width: page.image_width, height: page.image_height, blob, preview: URL.createObjectURL(blob),
     labels: page.boxes.map(b => ({ ...toCanvas(b, page.image_width, page.image_height),
       questionNo: b.question_no, answer: b.answer, answerType: b.answer_type, answerTypeLocked: true, label: b.label })),
@@ -122,12 +125,22 @@ export async function readTemplate(id: number): Promise<TemplateDraft> {
   }
 }
 
-// Match app/coords.py: empty/text, digits, circle/cross, then CJK ideographs.
-export function guessAnswerType(answer: string): AnswerType {
+// How a lone number such as "2" reads on this paper: an option (①–④) or a
+// numeric answer. The detector only finds cells, so the type comes from the
+// answer the teacher types, and this is the one thing an answer cannot tell.
+export type SingleDigitAs = 'choice' | 'digit'
+
+const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩'
+
+// Follows app/coords.py (digits, circle/cross marks, CJK ideographs, else
+// text), plus the two shapes only a choice question has: a letter A–E and a
+// circled number.
+export function guessAnswerType(answer: string, optionCount = 4, singleDigitAs: SingleDigitAs = 'choice'): AnswerType {
   const value = answer.trim()
   if (!value) return 'text'
-  const otherDigits = '²³¹፩፪፫፬፭፮፯፰፱᧚⁰⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉①②③④⑤⑥⑦⑧⑨⑴⑵⑶⑷⑸⑹⑺⑻⑼⒈⒉⒊⒋⒌⒍⒎⒏⒐⓪⓵⓶⓷⓸⓹⓺⓻⓼⓽⓿❶❷❸❹❺❻❼❽❾➀➁➂➃➄➅➆➇➈➊➋➌➍➎➏➐➑➒𐩀𐩁𐩂𐩃𐹠𐹡𐹢𐹣𐹤𐹥𐹦𐹧𐹨𑁒𑁓𑁔𑁕𑁖𑁗𑁘𑁙𑁚🄀🄁🄂🄃🄄🄅🄆🄇🄈🄉🄊'
-  if (Array.from(value).every(ch => /\p{Decimal_Number}/u.test(ch) || otherDigits.includes(ch))) return 'digit'
+  if (/^[A-E]$/i.test(value) || CIRCLED.includes(value)) return 'choice'
+  if (/^(?:[1-9]|10)$/.test(value) && Number(value) <= optionCount && singleDigitAs === 'choice') return 'choice'
+  if (/^\p{Decimal_Number}+$/u.test(value)) return 'digit'
   if (['O', 'o', '○', '◯', '圈', 'X', 'x', '✕', '✗', '×', '叉'].includes(value)) return 'mark'
   if (/^[一-鿿]+$/u.test(value)) return 'chinese'
   return 'text'
@@ -139,8 +152,9 @@ export function normalizedAnswer(label: Label, optionCount: number): string {
   const value = label.answer.trim()
   if (label.answerType !== 'choice' || !value) return value
   const number = /^[A-E]$/i.test(value) ? value.toUpperCase().charCodeAt(0) - 64
+    : CIRCLED.includes(value) ? CIRCLED.indexOf(value) + 1
     : /^(?:[1-9]|10)$/.test(value) ? Number(value) : NaN
-  if (!Number.isInteger(number) || number > optionCount) throw new Error(`選擇題正解請輸入 A–E 或 1–${optionCount}，且不可超過選項數`)
+  if (!Number.isInteger(number) || number > optionCount) throw new Error(`選擇題正解請輸入 A–E、①–⑩ 或 1–${optionCount}，且不可超過選項數`)
   return String(number)
 }
 export function answerError(label: Label, optionCount: number): string {

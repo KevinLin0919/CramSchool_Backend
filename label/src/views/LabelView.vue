@@ -101,6 +101,9 @@
               </span>
               <button @click="retryPrediction" :disabled="locked" class="ds-btn ds-btn--ghost ds-btn--sm">重試</button>
             </template>
+            <span v-else-if="currentImage.predictionsLoaded && !draft?.id && !(currentImage.labels?.length)" class="ds-badge ds-badge--pending">
+              沒有偵測到答案格，請在圖上手動框選
+            </span>
             <span v-else-if="currentImage.predictionsLoaded" class="ds-badge ds-badge--correct">
               <Check :size="11" /> {{ draft?.id ? '已載入模板' : '已套用偵測結果' }}
             </span>
@@ -128,15 +131,17 @@
       <!-- 右欄：標註面板 -->
       <aside class="side-panel">
         <div class="ds-card panel-card">
-          <p class="ds-eyebrow panel-label">標註類型</p>
-          <div class="class-row">
-            <span class="ds-badge ds-badge--accent">{{ DEFAULT_CLASS }}</span>
-            <span class="hint-text">單一類別</span>
-          </div>
+          <p class="ds-eyebrow panel-label">考卷資訊</p>
           <div v-if="draft" class="template-fields">
             <label class="hint-text">考卷名稱<input v-model="draft.name" class="ds-input ds-input--sm" maxlength="255" :disabled="locked" /></label>
             <label class="hint-text">單元<input v-model="draft.unit" class="ds-input ds-input--sm" maxlength="40" placeholder="選填，最多 40 字" :disabled="locked" /></label>
             <label class="hint-text">選項數<input v-model.number="draft.optionCount" class="ds-input ds-input--sm ds-input--mono" type="number" min="2" max="10" step="1" :disabled="locked" /></label>
+            <label class="hint-text">單一數字的正解視為
+              <select v-model="draft.singleDigitAs" class="ds-input ds-input--sm" :disabled="locked">
+                <option value="choice">選擇題（① ② ③ ④）</option>
+                <option value="digit">數字題（計算、填空）</option>
+              </select>
+            </label>
           </div>
           <p v-if="readOnly" class="ds-banner ds-banner--warning">多頁模板請在 App 編輯（目前顯示第一頁）</p>
           <p v-if="invalidMetadata" class="hint-text field-error">請填入考卷名稱，單元最多 40 字，選項數須為 2–10。</p>
@@ -173,6 +178,18 @@
 
         <div class="ds-card panel-card">
           <p class="ds-eyebrow panel-label">目前標註（{{ currentImage?.labels?.length || 0 }}）</p>
+          <div v-if="currentImage?.labels && currentImage.labels.length > 0 && isMasterView" class="batch-bar">
+            <label class="batch-all hint-text">
+              <input type="checkbox" :checked="allChecked" :indeterminate="checked.length > 0 && !allChecked" :disabled="locked" @change="toggleAll" />
+              {{ checked.length ? `已選 ${checked.length} 格` : '全選' }}
+            </label>
+            <select v-model="batchType" class="ds-input ds-input--sm" :disabled="locked || !checked.length" aria-label="整批設定題型">
+              <option value="choice">選擇</option><option value="mark">是非</option>
+              <option value="digit">數字</option><option value="chinese">國字</option><option value="text">文字</option>
+            </select>
+            <button class="ds-btn ds-btn--sm" :disabled="locked || !checked.length" @click="applyBatchType">套用題型</button>
+          </div>
+          <p v-if="currentImage?.labels?.length && isMasterView" class="hint-text batch-hint">勾選要設定的格子，按住 Shift 可一次勾選一整段。</p>
           <div v-if="currentImage?.labels && currentImage.labels.length > 0" class="label-scroll">
             <div
               v-for="(label, index) in currentImage.labels"
@@ -181,6 +198,8 @@
               :class="{ 'selected': index === selectedLabelIndex, 'invalid': labelError(label) }"
               @click="isMasterView ? focusLabelInput(index) : selectLabel(index)"
             >
+              <input v-if="isMasterView" type="checkbox" class="label-check" :checked="checked.includes(label)" :disabled="locked"
+                :aria-label="`勾選第 ${questionNumbers.get(label)} 題`" @click.stop="toggleCheck(index, $event)" />
               <span class="label-index">#{{ questionNumbers.get(label) }}</span>
               <span class="label-name">{{ label.class }}</span>
 
@@ -334,7 +353,9 @@ const questionNumbers = computed(() => {
   return numbers
 })
 const inferAnswerType = (label: Label) => {
-  if (!label.answerTypeLocked) label.answerType = guessAnswerType(label.expectedAnswer ?? '')
+  if (!label.answerTypeLocked) {
+    label.answerType = guessAnswerType(label.expectedAnswer ?? '', draft.value?.optionCount ?? 4, draft.value?.singleDigitAs ?? 'choice')
+  }
 }
 
 const displayedImages = computed(() =>
@@ -345,6 +366,47 @@ const displayedImages = computed(() =>
       : []
 )
 const currentImage = computed(() => displayedImages.value[currentImageIndex.value])
+
+// A lone "2" changes meaning with these two settings, so every cell the
+// teacher has not set by hand is read again.
+watch(() => [draft.value?.optionCount, draft.value?.singleDigitAs], () => {
+  currentImage.value?.labels?.forEach(inferAnswerType)
+})
+
+// Batch typing. The detector finds cells but not what kind of question each
+// one is, so the teacher ticks a run of cells and sets the type once.
+const checked = ref<Label[]>([])
+const batchType = ref<AnswerType>('choice')
+let lastChecked = -1
+const allChecked = computed(() => {
+  const labels = currentImage.value?.labels ?? []
+  return labels.length > 0 && labels.every(label => checked.value.includes(label))
+})
+const toggleAll = () => {
+  checked.value = allChecked.value ? [] : [...(currentImage.value?.labels ?? [])]
+}
+const toggleCheck = (index: number, event: MouseEvent) => {
+  const labels = currentImage.value?.labels ?? []
+  const label = labels[index]
+  if (!label) return
+  const on = !checked.value.includes(label)
+  const range = event.shiftKey && lastChecked >= 0
+    ? labels.slice(Math.min(lastChecked, index), Math.max(lastChecked, index) + 1)
+    : [label]
+  checked.value = on
+    ? [...checked.value, ...range.filter(l => !checked.value.includes(l))]
+    : checked.value.filter(l => !range.includes(l))
+  lastChecked = index
+}
+const applyBatchType = () => {
+  checked.value.forEach(label => { label.answerType = batchType.value; label.answerTypeLocked = true })
+  showToast(`已將 ${checked.value.length} 格設為「${({ choice: '選擇', mark: '是非', digit: '數字', chinese: '國字', text: '文字' } as const)[batchType.value]}」`, 'success')
+  checked.value = []
+}
+// Removed or re-detected cells must not linger in the selection.
+watch(() => currentImage.value?.labels, labels => {
+  checked.value = checked.value.filter(l => labels?.includes(l))
+}, { deep: false })
 const isMasterView = computed(() => viewMode.value === 'master')
 const hasAnyImages = computed(() => studentImages.value.length > 0 || !!masterKeyImage.value)
 
@@ -1579,4 +1641,10 @@ canvas {
 .label-item.invalid, .label-item.invalid .expected-value { border-color: var(--danger); }
 .label-item.invalid .expected-value { background: var(--danger-bg); }
 .field-error { color: var(--danger); margin: 4px 0; }
+.template-fields select { width: 100%; }
+.batch-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.batch-bar select { flex: 1; }
+.batch-all { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.batch-hint { margin: 0 0 10px; }
+.label-check { margin: 0; accent-color: var(--accent); }
 </style>
