@@ -248,7 +248,7 @@ def explain_item(exam_id: int, question_no: int):
         )
         turn = {"role": "user", "text": prompt,
                 "images": [AIImage(b) for b in images] if images else []}
-        reply = provider.complete(SYSTEM_BASE, [turn], max_tokens=900)
+        reply = provider.complete(SYSTEM_BASE, [turn], max_tokens=2400)
         data = _parse_json(reply.text)
         answer = {
             "question_no": question_no,
@@ -297,7 +297,7 @@ def summarize_exam(exam_id: int):
             "請回答 JSON：{\"summary\": \"三到四句的班級摘要，引用事實編號\", "
             "\"focus\": [\"下堂課優先處理的一到三件事，每件一句\"]}"
         )
-        reply = provider.complete(SYSTEM_BASE, [{"role": "user", "text": prompt}], max_tokens=900)
+        reply = provider.complete(SYSTEM_BASE, [{"role": "user", "text": prompt}], max_tokens=2400)
         data = _parse_json(reply.text)
         answer = {
             "summary": _grounded(str(data.get("summary", "")), facts, names),
@@ -388,7 +388,7 @@ def ask(exam_id: int, teacher_id: int, question: str):
             "需要數字時先呼叫工具，回答時用事實編號引用。最後只輸出給老師的回答，三到五句。")}]
         tokens_in = tokens_out = 0
         for _ in range(MAX_STEPS):
-            reply = provider.complete(SYSTEM_BASE, turns, tools=TOOLS, max_tokens=900)
+            reply = provider.complete(SYSTEM_BASE, turns, tools=TOOLS, max_tokens=2000)
             tokens_in += reply.input_tokens
             tokens_out += reply.output_tokens
             if not reply.tool_calls:
@@ -446,7 +446,7 @@ def parent_note(teacher_id: int, student_id: int):
             + "\n".join(lines) +
             "\n回答 JSON：{\"note\": \"...\"}"
         )
-        reply = provider.complete(SYSTEM_BASE, [{"role": "user", "text": prompt}], max_tokens=600)
+        reply = provider.complete(SYSTEM_BASE, [{"role": "user", "text": prompt}], max_tokens=1600)
         data = _parse_json(reply.text)
         name = profile["student_name"] or ""
         sentences = [{"text": s.text.replace("孩子", name or "孩子", 1) if i == 0 else s.text,

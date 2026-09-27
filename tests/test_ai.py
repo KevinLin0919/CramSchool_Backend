@@ -8,7 +8,7 @@ import pytest
 
 from app.ai import service
 from app.ai.grounding import Facts, ground
-from app.ai.provider import Provider, Reply, Tool, ToolCall
+from app.ai.provider import AIError, Provider, Reply, Tool, ToolCall
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import ExamTemplate
@@ -213,3 +213,13 @@ def test_parent_note_names_the_child_only_on_the_page(client, auth, uploaded_ima
     assert done["status"] == "done", done
     assert done["answer"]["note"][0]["text"].startswith(student["name"])
     assert not any(student["name"] in prompt for prompt in FakeProvider.prompts)
+
+
+def test_a_cut_off_answer_says_so():
+    def handler(request):
+        return httpx.Response(200, json={"status": "incomplete",
+                                         "incomplete_details": {"reason": "max_output_tokens"},
+                                         "output": [], "usage": {}})
+
+    with pytest.raises(AIError, match="截斷"):
+        _provider("openai", handler).complete("sys", [{"role": "user", "text": "hi"}])

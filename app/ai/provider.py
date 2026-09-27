@@ -168,6 +168,11 @@ class Provider:
             body["tools"] = [{"type": "function", "name": x.name, "description": x.description,
                               "parameters": x.parameters} for x in tools]
         out = self._post("/responses", body)
+        # Reasoning models spend part of the budget thinking; running out
+        # mid-answer leaves half a JSON object, which is worth naming.
+        if out.get("status") == "incomplete":
+            reason = (out.get("incomplete_details") or {}).get("reason", "")
+            raise AIError(f"AI 回答被截斷（{reason or '未完成'}）")
         output = out.get("output", [])
         text = "".join(c.get("text", "") for o in output if o.get("type") == "message"
                        for c in o.get("content", []) if c.get("type") == "output_text")
