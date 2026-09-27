@@ -1,3 +1,4 @@
+import { BRAND } from "./brand";
 import { useEffect, useMemo, useState } from "react";
 import { api, ClassRoster, Me, signOut, token } from "./api";
 import { Icon } from "./icons";
@@ -79,11 +80,12 @@ export default function App() {
     <div className="shell">
       <aside className="side">
         <div className="brand">
-          <img src="/web/fudao-mark.png" alt="浮島" />
-          <div><b>浮島</b><span>班級報告</span></div>
+          {BRAND === "浮島" ? <img src="/web/fudao-mark.png" alt={BRAND} /> : <span className="brand-mark" aria-label={BRAND}>{BRAND.slice(0, 1)}</span>}
+          <div><b>{BRAND}</b><span>班級報告</span></div>
         </div>
         <Search classes={classes} />
         <nav className="nav" aria-label="主選單">
+          {import.meta.env.VITE_WITH_LABEL === "1" && <a href="/label/"><Icon.exam />建立模板</a>}
           {nav.map((n) => (
             <button key={n.key} type="button" className={route.kind === n.key || n.also?.includes(route.kind) ? "on" : ""} onClick={() => go(n.path)}>
               <n.icon />{n.text}

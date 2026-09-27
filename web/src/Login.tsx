@@ -1,3 +1,4 @@
+import { BRAND } from "./brand";
 import { useState } from "react";
 import { webLogin } from "./api";
 
@@ -23,8 +24,8 @@ export default function Login({ onDone }: { onDone: () => void }) {
   return (
     <div className="login">
       <form onSubmit={submit}>
-        <img src="/web/fudao-mark.png" alt="浮島" />
-        <h1 style={{ fontSize: 26 }}>浮島</h1>
+        {BRAND === "浮島" ? <img src="/web/fudao-mark.png" alt={BRAND} /> : <span className="brand-mark" aria-label={BRAND}>{BRAND.slice(0, 1)}</span>}
+        <h1 style={{ fontSize: 26, fontWeight: 700 }}>{BRAND}</h1>
         <span className="note">班級報告</span>
         <label htmlFor="code" className="caption" style={{ marginTop: 14, alignSelf: "stretch" }}>登入碼</label>
         <input id="code" className="code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000"
