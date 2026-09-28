@@ -82,7 +82,6 @@ export default function ExamReport({ uuid }: { uuid: string }) {
           <span className="l">是非題{small ? "答對" : "答對率"}</span>
           <span className="v">{small ? <>{report.mark.correct}<small>/ {report.mark.total}</small></> : pct(report.mark.total ? report.mark.correct / report.mark.total : null)}</span>
           <span className="meter"><i style={{ width: `${report.mark.total ? (report.mark.correct / report.mark.total) * 100 : 0}%`, background: "var(--mark)" }} /></span>
-          <span className="s">亂猜也有 50%</span>
         </div>
         <div className={`kpi ${flagged.length ? "alert" : ""}`}>
           <span className="l">值得注意的題目</span>
