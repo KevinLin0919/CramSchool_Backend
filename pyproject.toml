@@ -14,10 +14,10 @@ requires-python = ">=3.11"
 # dependabot.yml` is the other half, and neither is worth having alone.
 dependencies = [
     "fastapi==0.141.1",
-    "uvicorn[standard]==0.53.0",
-    "sqlalchemy==2.0.54",
+    "uvicorn[standard]==0.54.0",
+    "sqlalchemy==2.1.0",
     "alembic==1.20.0",
-    "psycopg[binary]==3.3.5",
+    "psycopg[binary]==3.3.6",
     "pydantic==2.13.5",
     "pydantic-settings==2.15.0",
     "python-multipart==0.0.32",
@@ -26,7 +26,7 @@ dependencies = [
     # RS256 verification is not something to hand-roll — getting `alg`
     # handling wrong is the single most common way OIDC integrations become
     # forgeable.
-    "pyjwt[crypto]==2.14.0",
+    "pyjwt[crypto]==2.15.0",
 ]
 
 [project.optional-dependencies]
