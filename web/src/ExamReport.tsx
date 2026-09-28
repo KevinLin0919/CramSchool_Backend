@@ -52,7 +52,6 @@ export default function ExamReport({ uuid }: { uuid: string }) {
             <span>{report.exam.exam_date}</span>
             {report.exam.unit && <><span className="dot">·</span><span>單元 {report.exam.unit}</span></>}
             <span className="dot">·</span><span>{n} 份</span>
-            {report.exam.is_simulated && <span className="pill sim">模擬資料</span>}
             <span className={report.identified === n ? "pill ok" : "pill warn"}>{report.identified}/{n} 已配對學生</span>
             {report.pending_cells > 0 && <span className="pill warn">{report.pending_cells} 格待確認</span>}
           </div>

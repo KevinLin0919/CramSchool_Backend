@@ -15,7 +15,7 @@ export default function ExamList() {
           {exams.map((e) => (
             <button key={e.client_uuid} type="button" className="tr" style={{ gridTemplateColumns: "minmax(0,2.4fr) minmax(0,1fr) 90px 80px 130px" }} onClick={() => go(`/exam/${e.client_uuid}`)}>
               <span><b>{e.template_name}{e.sitting > 1 ? `（第 ${e.sitting} 次）` : ""}</b><small>{e.exam_date}</small></span>
-              <span style={{ color: "var(--ink2)" }}>{e.class_name} {e.is_simulated && <span className="pill sim">模擬</span>}</span>
+              <span style={{ color: "var(--ink2)" }}>{e.class_name}</span>
               <span>{e.unit ?? "—"}</span>
               <span className="n">{e.paper_count}</span>
               <span>{e.identified_count < e.paper_count ? <span className="pill warn">{e.paper_count - e.identified_count} 份未配對</span> : <span className="pill ok">已配對</span>}</span>

@@ -109,7 +109,7 @@ export default function App() {
           {classes.map((c) => (
             <button key={c.id} type="button" className={`cls ${route.kind === "class" && Number(route.id) === c.id ? "on" : ""}`} onClick={() => go(`/class/${c.id}`)}>
               {c.name}
-              {c.is_simulated ? <span className="pill sim">模擬</span> : <span className="note">{c.students.length} 人</span>}
+              <span className="note">{c.students.length} 人</span>
             </button>
           ))}
         </div>

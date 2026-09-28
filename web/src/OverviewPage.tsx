@@ -44,7 +44,7 @@ export default function OverviewPage() {
           return (
             <button type="button" className="classcard" onClick={() => go(`/class/${focus.id}`)}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: 17, fontWeight: 700 }}>{focus.name} {focus.is_simulated && <span className="pill sim">模擬</span>}</span>
+                <span style={{ fontSize: 17, fontWeight: 700 }}>{focus.name}</span>
                 <span className="note">{focus.students} 人</span>
               </div>
               <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
