@@ -85,7 +85,7 @@ export default function ExamReport({ uuid }: { uuid: string }) {
         <div className={`kpi ${flagged.length ? "alert" : ""}`}>
           <span className="l">值得注意的題目</span>
           <span className="v">{flagged.length}<small>題</small></span>
-          <span className="s">{flagged.length ? flagged.slice(0, 3).map((i) => `第 ${i.question_no} 題`).join("、") : "沒有異常"}</span>
+          <span className="s">{flagged.length ? `第 ${flagged.slice(0, 6).map((i) => i.question_no).join("、")}${flagged.length > 6 ? " 等" : ""} 題` : "沒有異常"}</span>
         </div>
       </div>
 
