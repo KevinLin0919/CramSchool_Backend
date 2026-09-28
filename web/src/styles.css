@@ -52,7 +52,7 @@ h2 { margin: 0; font-size: 16px; font-weight: 700; }
 .avatar { width: 32px; height: 32px; border-radius: 99px; background: var(--brand-s); color: var(--brand-d); display: grid; place-items: center; font-weight: 700; font-size: 13px; flex-shrink: 0; }
 .me small { display: block; font-size: 11px; color: var(--ink3); }
 .linkbtn { border: 0; background: none; color: var(--ink3); font-size: 12px; padding: 0; margin-left: auto; }
-.main { padding: 28px 40px 48px; display: flex; flex-direction: column; gap: 18px; min-width: 0; max-width: 1360px; }
+.main { padding: 28px 40px 48px; display: flex; flex-direction: column; gap: 18px; min-width: 0; width: 100%; max-width: 1680px; margin: 0 auto; }
 .crumb { font-size: 13px; color: var(--ink3); }
 .meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--ink2); }
 .dot { color: var(--ink4); }
