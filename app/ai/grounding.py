@@ -18,7 +18,7 @@ _PLACEHOLDER = re.compile(r"\{(F\d+)\}")
 _ADJACENT = re.compile(r"(\{F\d+\})\s*(?=\{F\d+\})")
 # Digits that name something rather than count it.
 _ALLOWED = re.compile(
-    r"第\s*\d+\s*(?:題|次|份|組)"      # 第 7 題
+    r"第\s*\d+(?:\s*[、，,和及與至到~]\s*\d+)*\s*(?:題|次|份|組)"  # 第 7 題 / 第 4、6、8 題
     r"|(?:選項|選了|選|答案是|答案)\s*[「『（(]?\s*[1-9①-⑨○✕OX]"  # 選 3 / 選項 ②
     r"|\d+\s*-\s*\d+"                  # 單元 1-2
     r"|S\d{2,3}"                        # pseudonymous student ids

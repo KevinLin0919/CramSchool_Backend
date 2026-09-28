@@ -34,6 +34,8 @@ def test_pointing_back_at_listed_items_is_not_a_count():
                         "這兩題值得優先檢視。", facts)
     assert sentence.verified
     assert not ground("另外有兩題沒人答對。", facts)[0].verified
+    assert ground("檢視第 4、6、8 題的題目品質。", facts)[0].verified
+    assert not ground("第 4 題有 6 人答錯。", facts)[0].verified
 
 
 def test_an_unknown_fact_id_is_not_verified():
