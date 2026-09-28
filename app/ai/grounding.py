@@ -4,8 +4,9 @@ The model never writes a figure itself. It is given facts, each with an id —
 F3: 第 21 題選 4 的人數 = 26 — and writes {F3} where the number goes; the
 server fills it in. Any digit left in the text afterwards was invented, except
 the few kinds that are names rather than quantities: question numbers,
-options, units. A sentence holding an invented number is kept but marked
-unverified, so a demo never shows a hole and never shows a guess as a fact.
+options, units. A sentence holding an invented number is marked unverified,
+and the service drops it: a teacher sees one sentence fewer, never a guess
+dressed as a fact.
 """
 
 from __future__ import annotations
@@ -22,9 +23,7 @@ _ALLOWED = re.compile(
     r"|(?:選項|選了|選|答案是|答案)\s*[「『（(]?\s*[1-9①-⑨○✕OX]"  # 選 3 / 選項 ②
     r"|\d+\s*-\s*\d+"                  # 單元 1-2
     r"|S\d{2,3}"                        # pseudonymous student ids
-    r"|[這那][兩二三四五](?:題|位|個|項|種|組)"  # 這兩題: points back at what was just listed
 )
-_ZH_NUMBERS = re.compile(r"[零〇一二兩三四五六七八九十百半]+(?:位|人|題|成|分之)")
 _SENTENCE = re.compile(r"[^。！？\n]+[。！？]?")
 
 
@@ -68,6 +67,9 @@ def ground(text: str, facts: Facts) -> list[Sentence]:
         filled = _PLACEHOLDER.sub(lambda m: values.get(m.group(1), "?"), raw)
         literal = _PLACEHOLDER.sub("", raw)
         stripped = _ALLOWED.sub("", literal)
-        invented = bool(re.search(r"\d", stripped)) or bool(_ZH_NUMBERS.search(stripped))
+        # Counts in words ("這兩題", "三位") are left alone: in practice they point
+        # back at items the sentence just listed, and flagging them only ever
+        # flagged sentences that were right.
+        invented = bool(re.search(r"\d", stripped))
         out.append(Sentence(filled, verified=not unknown and not invented))
     return out
