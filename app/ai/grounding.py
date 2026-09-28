@@ -22,6 +22,7 @@ _ALLOWED = re.compile(
     r"|(?:選項|選了|選|答案是|答案)\s*[「『（(]?\s*[1-9①-⑨○✕OX]"  # 選 3 / 選項 ②
     r"|\d+\s*-\s*\d+"                  # 單元 1-2
     r"|S\d{2,3}"                        # pseudonymous student ids
+    r"|[這那][兩二三四五](?:題|位|個|項|種|組)"  # 這兩題: points back at what was just listed
 )
 _ZH_NUMBERS = re.compile(r"[零〇一二兩三四五六七八九十百半]+(?:位|人|題|成|分之)")
 _SENTENCE = re.compile(r"[^。！？\n]+[。！？]?")

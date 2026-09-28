@@ -27,6 +27,15 @@ def test_numbers_come_only_from_facts():
     assert out[3].verified              # 1-2 names a unit
 
 
+def test_pointing_back_at_listed_items_is_not_a_count():
+    facts = Facts()
+    f1, f2 = facts.add("第 16 題 答對率", "4%"), facts.add("第 15 題 答對率", "11%")
+    [sentence] = ground(f"第 16 題答對率 {{{f1}}}，第 15 題答對率 {{{f2}}}，"
+                        "這兩題值得優先檢視。", facts)
+    assert sentence.verified
+    assert not ground("另外有兩題沒人答對。", facts)[0].verified
+
+
 def test_an_unknown_fact_id_is_not_verified():
     out = ground("有 {F9} 人。", Facts())
     assert not out[0].verified
