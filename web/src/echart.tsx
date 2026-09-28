@@ -12,7 +12,7 @@ echarts.use([BarChart, LineChart, GridComponent, LegendComponent, MarkAreaCompon
 
 export const C = {
   ink: "#16211b", ink2: "#4b5a51", ink3: "#85918a", line: "#e1e7e3", grid: "#eef1ef",
-  brand: "#2d5a3d", choice: "#3f8f63", choiceL: "#9cc9ae", mark: "#8a9a2e", markL: "#cdd68f",
+  brand: "#2d5a3d", choice: "#3f8f63", choiceL: "#9cc9ae", mark: "#6e5bd1", markL: "#a99be6",
   bad: "#c8412f", badL: "#e9a397", muted: "#b9c3bd", low: "#b7c9bd",
 };
 export const SANS = '"Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif';
