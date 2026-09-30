@@ -16,6 +16,9 @@ updates:
   # PR is exactly what CI tests and what the image installs.
   - package-ecosystem: uv
     directory: "/"
+    # Updates reach production the way every change does: through develop,
+    # which QAT runs, and then main in a tested batch.
+    target-branch: develop
     schedule:
       interval: weekly
       day: monday
@@ -33,5 +36,6 @@ updates:
 
   - package-ecosystem: github-actions
     directory: "/"
+    target-branch: develop
     schedule:
       interval: monthly
