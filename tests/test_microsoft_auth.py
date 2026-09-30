@@ -353,3 +353,104 @@ def test_issued_token_actually_works(signed_in, keypair):
                        headers={"Authorization": f"Bearer {token}"})
     assert me.status_code == 200
     assert me.json()["name"] == "王老師"
+
+
+# ── 網頁的 Microsoft 登入 ────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def web_signed_in(client, keypair, monkeypatch):
+    """As `signed_in`, with the class report's Microsoft button switched on."""
+    from app import routers
+    _, public = keypair
+
+    original = routers.auth.TokenVerifier
+
+    def patched(settings, keys=None):
+        return original(settings, keys=StubKeyStore(public))
+
+    monkeypatch.setattr(routers.auth, "TokenVerifier", patched)
+
+    from app.config import get_settings
+    from app.main import app as fastapi_app
+    fastapi_app.dependency_overrides[get_settings] = lambda: Settings(
+        microsoft_tenant_id=TENANT, microsoft_client_id=CLIENT,
+        microsoft_auto_provision=False, microsoft_web_login=True)
+    yield client
+    fastapi_app.dependency_overrides.pop(get_settings, None)
+
+
+def post_web_token(client, private, **overrides):
+    return client.post("/api/v1/auth/microsoft-web",
+                       json={"id_token": make_token(private, **overrides)})
+
+
+def test_web_config_is_off_until_switched_on(signed_in):
+    """Configured for the phone is not the same as registered for the browser."""
+    body = signed_in.get("/api/v1/auth/microsoft-config").json()
+    assert body == {"enabled": False, "tenant_id": None, "client_id": None}
+
+
+def test_web_config_names_the_registration_when_on(web_signed_in):
+    body = web_signed_in.get("/api/v1/auth/microsoft-config").json()
+    assert body == {"enabled": True, "tenant_id": TENANT, "client_id": CLIENT}
+
+
+def test_web_sign_in_is_refused_while_switched_off(signed_in, keypair):
+    private, _ = keypair
+    with SessionLocal() as db:
+        db.add(Teacher(name="待認領", email="wang@fudao.example"))
+        db.commit()
+    assert post_web_token(signed_in, private).status_code == 404
+
+
+def test_web_sign_in_issues_a_half_day_web_token(web_signed_in, keypair):
+    from datetime import UTC, datetime, timedelta
+    private, _ = keypair
+    with SessionLocal() as db:
+        db.add(Teacher(name="待認領", email="wang@fudao.example"))
+        db.commit()
+
+    response = post_web_token(web_signed_in, private)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["teacher_name"] == "王老師"
+
+    with SessionLocal() as db:
+        issued = db.query(ApiToken).one()
+        assert issued.kind == "web"
+        lifetime = issued.expires_at.replace(tzinfo=UTC) - datetime.now(UTC)
+        assert timedelta(hours=11) < lifetime <= timedelta(hours=12)
+
+    me = web_signed_in.get("/api/v1/auth/me",
+                           headers={"Authorization": f"Bearer {body['token']}"})
+    assert me.status_code == 200
+
+
+def test_web_token_from_microsoft_cannot_mint_login_codes(web_signed_in, keypair):
+    """The code chain starts at a phone, whichever door the browser came through."""
+    private, _ = keypair
+    with SessionLocal() as db:
+        db.add(Teacher(name="待認領", email="wang@fudao.example"))
+        db.commit()
+    token = post_web_token(web_signed_in, private).json()["token"]
+    minted = web_signed_in.post("/api/v1/auth/web-code",
+                                headers={"Authorization": f"Bearer {token}"})
+    assert minted.status_code == 403
+
+
+def test_web_sign_in_keeps_the_directory_rule(web_signed_in, keypair):
+    """Being in the tenant is still not being a teacher, in the browser too."""
+    private, _ = keypair
+    response = post_web_token(web_signed_in, private)
+    assert response.status_code == 403
+
+
+def test_web_sign_in_refuses_a_token_for_another_app(web_signed_in, keypair):
+    private, _ = keypair
+    with SessionLocal() as db:
+        db.add(Teacher(name="待認領", email="wang@fudao.example"))
+        db.commit()
+    response = post_web_token(web_signed_in, private,
+                              aud="ffffffff-0000-0000-0000-000000000000")
+    assert response.status_code == 401

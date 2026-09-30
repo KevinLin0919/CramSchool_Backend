@@ -55,6 +55,9 @@ services:
       MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
       MICROSOFT_AUTO_PROVISION: ${MICROSOFT_AUTO_PROVISION:-false}
       MICROSOFT_TOKEN_DAYS: ${MICROSOFT_TOKEN_DAYS:-30}
+      # The class report's Microsoft button. On in QAT, where it is tried
+      # first; needs …:8443/web/ in the app registration to get past Microsoft.
+      MICROSOFT_WEB_LOGIN: ${MICROSOFT_WEB_LOGIN:-true}
       OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
       # OpenCode Go: GPT 6 Luna through /responses, which also reads images.
       OPENCODE_BASE_URL: ${OPENCODE_BASE_URL:-https://opencode.ai/zen/go/v1}

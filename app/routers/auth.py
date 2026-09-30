@@ -12,7 +12,9 @@ from ..db import get_db
 from ..models import ApiToken, InviteCode, Teacher, WebLoginCode
 from ..ratelimit import RateLimiter, client_key
 from ..schemas import (
+    MicrosoftConfigOut,
     MicrosoftTokenRequest,
+    MicrosoftWebTokenRequest,
     TeacherOut,
     TokenRequest,
     TokenResponse,
@@ -119,9 +121,36 @@ def sign_in_with_microsoft(payload: MicrosoftTokenRequest,
     for using Entra at all a false one: disabling someone in the directory has
     to eventually stop the iPad in their bag.
     """
+    teacher = _teacher_from_microsoft(payload.id_token, db, settings)
+
+    raw = generate_token()
+    expires = datetime.now(UTC) + timedelta(days=settings.microsoft_token_days)
+    db.add(ApiToken(teacher_id=teacher.id,
+                    token_hash=hash_token(raw),
+                    device_name=payload.device_name,
+                    expires_at=expires))
+    db.commit()
+
+    log.info("signed in teacher_id=%s role=%s device=%r via=microsoft expires=%s",
+             teacher.id, teacher.role, payload.device_name, expires.isoformat())
+
+    return TokenResponse(token=raw,
+                         teacher_id=teacher.id,
+                         teacher_name=teacher.name,
+                         role=teacher.role,
+                         expires_at=expires)
+
+
+def _teacher_from_microsoft(id_token: str, db: Session, settings: Settings) -> Teacher:
+    """The teacher an ID token speaks for, or the HTTP error that says why not.
+
+    Shared by the phone and the browser, so both doors apply the same rules:
+    who may sign in, how a pre-created account is claimed, and that a disabled
+    one stays out.
+    """
     verifier = TokenVerifier(settings)
     try:
-        identity = verifier.verify(payload.id_token)
+        identity = verifier.verify(id_token)
     except MicrosoftAuthError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
@@ -158,23 +187,7 @@ def sign_in_with_microsoft(payload: MicrosoftTokenRequest,
     teacher.name = identity.name or teacher.name
     if identity.email:
         teacher.email = identity.email
-
-    raw = generate_token()
-    expires = datetime.now(UTC) + timedelta(days=settings.microsoft_token_days)
-    db.add(ApiToken(teacher_id=teacher.id,
-                    token_hash=hash_token(raw),
-                    device_name=payload.device_name,
-                    expires_at=expires))
-    db.commit()
-
-    log.info("signed in teacher_id=%s role=%s device=%r via=microsoft expires=%s",
-             teacher.id, teacher.role, payload.device_name, expires.isoformat())
-
-    return TokenResponse(token=raw,
-                         teacher_id=teacher.id,
-                         teacher_name=teacher.name,
-                         role=teacher.role,
-                         expires_at=expires)
+    return teacher
 
 
 @router.get("/me", response_model=TeacherOut, summary="確認目前 token 對應的帳號")
@@ -295,5 +308,43 @@ def web_login(payload: WebLoginIn, db: Session = Depends(get_db)) -> TokenRespon
                     expires_at=expires, kind="web"))
     db.commit()
     log.info("web sign-in teacher_id=%s", teacher.id)
+    return TokenResponse(token=raw, teacher_id=teacher.id, teacher_name=teacher.name,
+                         role=teacher.role, expires_at=expires)
+
+
+# The browser can also sign in with the school's Microsoft account, so a
+# teacher who only wants to add a template need not reach for the phone. The
+# ID token is obtained in the browser (a single-page application's code can
+# only be redeemed there) and handed over here, where it passes the same
+# checks as the phone's. What comes back is a web token, not a device token:
+# it lasts the same half-day as a code sign-in and cannot mint login codes.
+
+@router.get("/microsoft-config", response_model=MicrosoftConfigOut,
+            summary="網頁 Microsoft 登入的公開設定")
+def microsoft_config(settings: Settings = Depends(get_settings)) -> MicrosoftConfigOut:
+    if not (settings.microsoft_web_login and settings.microsoft_configured):
+        return MicrosoftConfigOut(enabled=False)
+    return MicrosoftConfigOut(enabled=True,
+                              tenant_id=settings.microsoft_tenant_id,
+                              client_id=settings.microsoft_client_id)
+
+
+@router.post("/microsoft-web", response_model=TokenResponse,
+             summary="以學校的 Microsoft 帳號登入網頁",
+             dependencies=[Depends(web_rate_limited)])
+def sign_in_web_with_microsoft(payload: MicrosoftWebTokenRequest,
+                               db: Session = Depends(get_db),
+                               settings: Settings = Depends(get_settings)) -> TokenResponse:
+    if not settings.microsoft_web_login:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="網頁尚未開放 Microsoft 登入")
+    teacher = _teacher_from_microsoft(payload.id_token, db, settings)
+
+    raw = generate_token()
+    expires = datetime.now(UTC) + WEB_TOKEN_TTL
+    db.add(ApiToken(teacher_id=teacher.id, token_hash=hash_token(raw),
+                    device_name="網頁（Microsoft）", expires_at=expires, kind="web"))
+    db.commit()
+    log.info("web sign-in teacher_id=%s via=microsoft", teacher.id)
     return TokenResponse(token=raw, teacher_id=teacher.id, teacher_name=teacher.name,
                          role=teacher.role, expires_at=expires)

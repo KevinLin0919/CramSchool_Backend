@@ -221,6 +221,22 @@ MICROSOFT_AUTO_PROVISION=false
 的 JWKS 取得並快取（他們會輪替，所以快取要會過期，也要容忍沒見過的金鑰）。
 認人用的是 `microsoft_oid` 而不是 email——**email 可以改，oid 不會**。
 
+### 網頁也能用 Microsoft 登入
+
+班級報告的登入頁除了手機產生的登入碼，也可以直接用學校的 Microsoft 帳號，
+讓只想建模板的老師不必先拿手機。流程和 App 一樣是授權碼＋PKCE，只是在瀏覽器裡跑：
+單頁應用程式的授權碼只能從瀏覽器兌換，所以 ID token 由瀏覽器向 Microsoft 取得，
+再交給 `POST /api/v1/auth/microsoft-web`，那裡的檢查和手機那條完全相同。
+
+- 換到的是**網頁 token**（12 小時、不能產生登入碼），不是裝置 token。
+- `GET /api/v1/auth/microsoft-config` 告訴網頁要不要顯示按鈕；租戶與 client id 不是秘密。
+- 開關是 `MICROSOFT_WEB_LOGIN`（QAT 預設開、正式預設關）。打開前，要在同一個
+  app registration 加上「單頁應用程式（SPA）」平台與這台的回呼網址：
+  正式 `https://<host>/web/`、QAT `https://<host>:8443/web/`，一個字都不能差。
+- 網頁的 CSP 因此多放行 `https://login.microsoftonline.com` 一個連線目標。
+- PKCE 需要瀏覽器的 WebCrypto，只在 https 下有；從補習班內網的 http 位址開啟時，
+  按鈕會自動隱藏，登入碼照常可用。
+
 ### 登出 = 撤銷這台裝置
 
 | 端點 | 範圍 |
