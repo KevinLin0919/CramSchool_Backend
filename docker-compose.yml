@@ -91,6 +91,9 @@ services:
       MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
       MICROSOFT_AUTO_PROVISION: ${MICROSOFT_AUTO_PROVISION:-false}
       MICROSOFT_TOKEN_DAYS: ${MICROSOFT_TOKEN_DAYS:-30}
+      # The class report's Microsoft button. Off until /web/ on this host is
+      # in the app registration and the browser flow has been tried in QAT.
+      MICROSOFT_WEB_LOGIN: ${MICROSOFT_WEB_LOGIN:-false}
     # A 247 KiB PNG can decode to two thirds of a gigabyte, and Pillow only
     # refuses past twice MAX_IMAGE_PIXELS — so the ceiling on one request is
     # gigabytes, in a single worker. Unlimited, that OOMs the host and takes

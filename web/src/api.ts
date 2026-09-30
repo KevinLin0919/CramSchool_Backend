@@ -1,6 +1,9 @@
 // Same-origin API client. The web token is a 12-hour credential minted from
-// a six-digit code on the phone; it lives in sessionStorage so closing the
-// browser on a shared school computer ends the session.
+// a six-digit code on the phone or a Microsoft sign-in; it lives in
+// sessionStorage so closing the browser on a shared school computer ends the
+// session.
+
+import type { MicrosoftConfig } from "./microsoft";
 
 const TOKEN_KEY = "fudao.webToken";
 
@@ -49,16 +52,33 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return res.status === 204 ? (undefined as T) : res.json();
 }
 
+function keep(value: string) {
+  try {
+    sessionStorage.setItem(TOKEN_KEY, value);
+  } catch {
+    throw new ApiError(0, "瀏覽器不允許儲存登入狀態，請關閉無痕模式再試一次");
+  }
+}
+
 export async function webLogin(code: string) {
   const out = await request<{ token: string; teacher_name: string }>("/api/v1/auth/web-login", {
     method: "POST",
     body: JSON.stringify({ code }),
   });
-  try {
-    sessionStorage.setItem(TOKEN_KEY, out.token);
-  } catch {
-    throw new ApiError(0, "瀏覽器不允許儲存登入狀態，請關閉無痕模式再試一次");
-  }
+  keep(out.token);
+  return out;
+}
+
+export function microsoftConfig() {
+  return request<MicrosoftConfig>("/api/v1/auth/microsoft-config");
+}
+
+export async function microsoftWebLogin(idToken: string) {
+  const out = await request<{ token: string; teacher_name: string }>("/api/v1/auth/microsoft-web", {
+    method: "POST",
+    body: JSON.stringify({ id_token: idToken }),
+  });
+  keep(out.token);
   return out;
 }
 

@@ -93,9 +93,13 @@ def _mount_web(application: FastAPI, settings) -> None:
     async def web_headers(request: Request, call_next):
         response = await call_next(request)
         if request.url.path.startswith("/web"):
+            # Microsoft's token endpoint is the one other host the page talks
+            # to: a single-page application redeems its sign-in code from the
+            # browser, never through this server.
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "
-                "script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+                "script-src 'self'; connect-src 'self' https://login.microsoftonline.com; "
+                "frame-ancestors 'none'; base-uri 'none'"
             )
             response.headers["X-Frame-Options"] = "DENY"
             response.headers["Referrer-Policy"] = "no-referrer"

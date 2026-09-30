@@ -51,6 +51,28 @@ class MicrosoftTokenRequest(BaseModel):
     device_name: str | None = Field(default=None, max_length=120)
 
 
+class MicrosoftWebTokenRequest(BaseModel):
+    """The ID token the browser got from the tenant, and nothing else.
+
+    No device name: a browser session is not a device anyone revokes by name,
+    and it expires on its own within the day.
+    """
+
+    id_token: str = Field(min_length=32, max_length=8192)
+
+
+class MicrosoftConfigOut(BaseModel):
+    """What the class report needs to start a Microsoft sign-in.
+
+    The tenant and client ids are not secrets: the phone app ships with them,
+    and the browser sends both to Microsoft in the address bar anyway.
+    """
+
+    enabled: bool
+    tenant_id: str | None = None
+    client_id: str | None = None
+
+
 class TokenResponse(BaseModel):
     token: str
     teacher_id: int

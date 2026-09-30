@@ -122,6 +122,12 @@ class Settings(BaseSettings):
     # long a departed account keeps working while leaving daily use offline.
     microsoft_token_days: int = 30
 
+    # Whether the class report offers the same Microsoft sign-in in the
+    # browser. Off by default: it only works once this host's /web/ address is
+    # added to the school's app registration as a single-page application, and
+    # until someone has done that the button leads to Microsoft's error page.
+    microsoft_web_login: bool = False
+
     # Signing keys are cached; Microsoft rotates them, so the cache has to
     # expire and has to tolerate a key it has never seen.
     jwks_cache_seconds: int = 12 * 60 * 60
