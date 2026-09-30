@@ -248,7 +248,7 @@ def explain_item(exam_id: int, question_no: int):
             f"全班作答情形（事實）：\n{facts.prompt_block()}\n"
             f"系統標記：{', '.join(item['flags']) or '無'}\n\n"
             "請回答 JSON：{\"concept\": \"這題在考什麼觀念（一句）\", "
-            "\"why\": \"學生為什麼會選最多人選的錯誤答案（二到三句，引用事實編號）\", "
+            "\"why\": \"學生為什麼會選最多人選的錯誤答案（引用事實編號）\", "
             "\"suggestion\": \"下堂課可以怎麼處理（一句）\", "
             "\"key_check\": true 或 false（是否建議先確認標準答案）}"
         )
@@ -300,14 +300,17 @@ def summarize_exam(exam_id: int):
         prompt = (
             f"這是「{report['exam']['template_name']}」的班級結果。\n"
             f"事實：\n{facts.prompt_block()}\n系統標記：{'; '.join(flagged) or '無'}\n\n"
-            "請回答 JSON：{\"summary\": \"三到四句的班級摘要，引用事實編號\", "
-            "\"focus\": [\"下堂課優先處理的一到三件事，每件一句\"]}"
+            "摘要顯示在老師的報告卡片上，老師通常只花幾秒掃過：只寫最重要的發現。\n"
+            "請回答 JSON：{\"summary\": \"班級摘要，引用事實編號\", "
+            "\"focus\": [\"下堂課優先處理的事，最重要的在前\"]}"
         )
         reply = provider.complete(SYSTEM_BASE, [{"role": "user", "text": prompt}], max_tokens=2400)
         data = _parse_json(reply.text)
         answer = {
             "summary": _grounded(str(data.get("summary", "")), facts, names),
-            "focus": [_grounded(str(f), facts, names) for f in data.get("focus", [])][:3],
+            # A point whose every sentence was dropped would show as an empty bullet.
+            "focus": [g for g in (_grounded(str(f), facts, names)
+                                  for f in data.get("focus", [])) if g][:3],
         }
         return {"answer": answer, "input_tokens": reply.input_tokens,
                 "output_tokens": reply.output_tokens, "log": [{"facts": facts.prompt_block()}]}
@@ -317,18 +320,27 @@ def summarize_exam(exam_id: int):
 # ── feature: free questions, with read-only tools ────────────────────────────
 
 TOOLS = [
-    Tool("exam_overview", "這次考試的整體統計（份數、平均、各題答對人數、系統標記）。",
+    Tool("exam_overview", "這次考試的整體統計：份數、平均答對題數、每題答對人數與系統標記"
+         "（例如 popular_distractor 表示多數人選同一個錯誤選項）。數字以事實編號 {F#} 回傳，"
+         "回答時引用編號。想先知道哪幾題值得看時用它；單題細節用 item_detail。",
          {"type": "object", "properties": {}}),
-    Tool("item_detail", "某一題的選項分布、高低分組選擇。",
-         {"type": "object", "properties": {"question_no": {"type": "integer"}},
+    Tool("item_detail", "某一題的作答人數、答對人數、每個選項的人數、空白人數，以及高分組和低分組"
+         "（各約 27%，同分一起算）分別選了什麼，並回傳標準答案。數字以事實編號回傳。"
+         "題號不存在時回傳 error。",
+         {"type": "object", "properties": {"question_no": {
+             "type": "integer", "description": "答案格的題號（系統編號，可能和紙上印的題號不同）"}},
           "required": ["question_no"]}),
-    Tool("student_history", "某位學生（代號）歷次考試成績與這次錯的題。",
+    Tool("student_history", "某位學生歷次考試的答對題數（事實編號）。只接受代號，"
+         "找不到時回傳 error。不包含學生姓名。",
          {"type": "object",
-          "properties": {"student": {"type": "string", "description": "例如 S03"}},
+          "properties": {"student": {"type": "string", "description": "學生代號，例如 S03"}},
           "required": ["student"]}),
-    Tool("unit_trend", "這個班各單元的答對率變化。", {"type": "object", "properties": {}}),
-    Tool("read_question", "看某一題在考卷上的區塊圖（只在需要知道題目內容時使用）。",
-         {"type": "object", "properties": {"question_no": {"type": "integer"}},
+    Tool("unit_trend", "這個班歷次考試各單元的全班答對率（事實編號），用來回答進步或退步。"
+         "不分科目，比較時注意單元名稱。", {"type": "object", "properties": {}}),
+    Tool("read_question", "取得某一題在教師答案卷上的區塊圖，圖片附在下一則訊息。"
+         "只在需要知道題目在問什麼時使用；統計數字用其他工具。找不到該題時回傳 error。",
+         {"type": "object", "properties": {"question_no": {
+             "type": "integer", "description": "答案格的題號"}},
           "required": ["question_no"]}),
 ]
 
@@ -387,11 +399,17 @@ def ask(exam_id: int, teacher_id: int, question: str):
                 return {"note": "圖片附在下一則訊息"}, AIImage(images[0])
             return {"error": "未知的工具"}, None
 
+        # Teachers ask by name; the model only ever sees codes.
+        asked = question
+        for code, student_name in sorted(names.names.items(), key=lambda kv: -len(kv[1])):
+            if student_name and student_name != code:
+                asked = asked.replace(student_name, code)
         turns: list[dict] = [{"role": "user", "text": (
-            f"老師的問題：{question}\n"
+            f"老師的問題：{asked}\n"
             f"考試：{report['exam']['template_name']}，"
             f"班級共 {len(names.by_id)} 位學生（代號 S01…）。"
-            "需要數字時先呼叫工具，回答時用事實編號引用。最後只輸出給老師的回答，三到五句。")}]
+            "需要數字時先呼叫工具，回答時用事實編號引用。最後只輸出給老師的回答，"
+            "直接回答老師問的事，老師是在上課空檔看的。")}]
         tokens_in = tokens_out = 0
         for _ in range(MAX_STEPS):
             reply = provider.complete(SYSTEM_BASE, turns, tools=TOOLS, max_tokens=2000)
@@ -446,8 +464,8 @@ def parent_note(teacher_id: int, student_id: int):
             lines.append(f"{label}：答對 {{{f1}}}/{{{f2}}}，"
                          f"選擇題 {ch[0]}/{ch[1]}，是非題 {mk[0]}/{mk[1]}")
         prompt = (
-            "以下是一位國小學生幾次社會考試的結果。請以補習班老師的口吻，寫一段給家長的話，"
-            "三到四句：先說做得好的地方，再說需要加強的觀念，最後給一個在家可以做的具體建議。"
+            "以下是一位國小學生幾次考試的結果（每行開頭是單元或考卷名稱）。請以補習班老師的口吻，寫一段給家長的話，"
+            "家長會在手機上讀：先說做得好的地方，再說需要加強的觀念，最後給一個在家可以做的具體建議。"
             "用「孩子」稱呼學生，不要寫名字，不要寫分數或題數。\n"
             + "\n".join(lines) +
             "\n回答 JSON：{\"note\": \"...\"}"

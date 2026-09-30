@@ -114,6 +114,25 @@ def test_student_names_never_reach_the_model(client, auth, uploaded_image, ai_on
     assert "S01" not in done["answer"]["summary"][0]["text"]
 
 
+def test_a_name_in_the_question_reaches_the_model_as_a_code(client, auth, uploaded_image, ai_on):
+    exam = _simulated_exam(client, auth, uploaded_image)
+    report = client.get(f"/api/v1/exams/{exam}/report", headers=auth).json()
+    name = next(p["student_name"] for p in report["paper_list"] if p["student_name"])
+    FakeProvider.script = [Reply("看不出來。")]
+    client.post(f"/api/v1/ai/exams/{exam}/ask", json={"question": f"{name}這次退步了嗎？"},
+                headers=auth)
+    assert name not in FakeProvider.prompts[0] and "S0" in FakeProvider.prompts[0]
+
+
+def test_a_summary_point_left_empty_is_not_shown(client, auth, uploaded_image, ai_on):
+    exam = _simulated_exam(client, auth, uploaded_image)
+    FakeProvider.script = [Reply(json.dumps({"summary": "好。",
+                                             "focus": ["重教第 1 題。", "有 40 人錯。"]}))]
+    run = client.post(f"/api/v1/ai/exams/{exam}/summary", headers=auth).json()
+    done = client.get(f"/api/v1/ai/runs/{run['id']}", headers=auth).json()
+    assert len(done["answer"]["focus"]) == 1
+
+
 def test_free_questions_use_tools_then_answer(client, auth, uploaded_image, ai_on):
     exam = _simulated_exam(client, auth, uploaded_image)
     FakeProvider.script = [
@@ -168,6 +187,17 @@ def test_anthropic_wire_format():
     assert seen["path"].endswith("/messages") and seen["key"] == "k" and seen["bearer"] is None
     assert seen["body"]["tools"][0]["input_schema"] == {"type": "object"}
     assert reply.text == "好" and reply.tool_calls[0].arguments == {"a": 1}
+
+
+@pytest.mark.parametrize("stop,message", [("max_tokens", "截斷"), ("refusal", "拒絕")])
+def test_anthropic_says_why_a_reply_stopped_short(stop, message):
+    def handler(request):
+        return httpx.Response(200, json={
+            "content": [{"type": "text", "text": "{\"ranking\": ["}],
+            "stop_reason": stop, "usage": {}})
+
+    with pytest.raises(AIError, match=message):
+        _provider("anthropic", handler).complete("sys", [{"role": "user", "text": "hi"}])
 
 
 def test_openai_responses_wire_format():

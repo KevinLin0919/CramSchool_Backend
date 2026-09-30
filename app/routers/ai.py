@@ -22,6 +22,12 @@ class AskIn(BaseModel):
     question: str = Field(min_length=2, max_length=300)
 
 
+
+# Its own instructions: the shared ones tell the model never to name a
+# student, which is the whole job here.
+NAME_SYSTEM = ("你協助補習班老師辨認考卷上的手寫姓名。只從提供的名冊中挑選，"
+               "用繁體中文，只回答 JSON。")
+
 @router.get("/status", summary="AI 是否可用")
 def ai_status(_: Teacher = Depends(current_teacher),
               settings: Settings = Depends(get_settings)) -> dict:
@@ -103,8 +109,8 @@ def name_suggestion(
               "\n回答 JSON：{\"ranking\": [{\"n\": 名冊編號, \"score\": 0 到 1 的可能性}]}，"
               "最多三個，看不出來就回空陣列。")
     try:
-        reply = Provider(settings).complete(service.SYSTEM_BASE, [
-            {"role": "user", "text": prompt, "images": [AIImage(png)]}], max_tokens=200)
+        reply = Provider(settings).complete(NAME_SYSTEM, [
+            {"role": "user", "text": prompt, "images": [AIImage(png)]}], max_tokens=2000)
         data = service._parse_json(reply.text)
     except AINotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -112,7 +118,10 @@ def name_suggestion(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     out = []
     for entry in data.get("ranking", [])[:3]:
-        n = int(entry.get("n", 0))
+        try:
+            n = int(entry.get("n", 0))
+        except (TypeError, ValueError):
+            continue
         if 1 <= n <= len(roster):
             out.append({"student_id": roster[n - 1].id, "name": roster[n - 1].name,
                         "score": round(float(entry.get("score", 0)), 2)})

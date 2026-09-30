@@ -139,6 +139,12 @@ class Provider:
             body["tools"] = [{"name": x.name, "description": x.description,
                               "input_schema": x.parameters} for x in tools]
         out = self._post("/messages", body)
+        # Thinking counts against max_tokens, so a short budget can end the
+        # reply before the JSON does; say so rather than "format error".
+        if out.get("stop_reason") == "max_tokens":
+            raise AIError("AI 回答被截斷（max_tokens）")
+        if out.get("stop_reason") == "refusal":
+            raise AIError("AI 拒絕回答這個請求")
         text = "".join(b.get("text", "") for b in out.get("content", []) if b.get("type") == "text")
         calls = [ToolCall(b["id"], b["name"], b.get("input") or {})
                  for b in out.get("content", []) if b.get("type") == "tool_use"]
