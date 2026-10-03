@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .db import get_db
-from .models import ApiToken, Teacher
+from .models import TEMPLATE_ROLES, ApiToken, Teacher
 
 TOKEN_BYTES = 32
 
@@ -92,4 +92,10 @@ def current_teacher(token: ApiToken = Depends(current_token)) -> Teacher:
 def require_admin(teacher: Teacher = Depends(current_teacher)) -> Teacher:
     if teacher.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要管理員權限")
+    return teacher
+
+
+def require_template_manager(teacher: Teacher = Depends(current_teacher)) -> Teacher:
+    if teacher.role not in TEMPLATE_ROLES:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要模板管理權限")
     return teacher
