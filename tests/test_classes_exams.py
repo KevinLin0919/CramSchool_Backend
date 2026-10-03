@@ -5,6 +5,7 @@ import uuid
 from sqlalchemy import text
 
 from app.db import SessionLocal
+from tests.conftest import manager_headers
 from tests.test_api import make_template
 
 
@@ -18,7 +19,7 @@ def _choice_template(client, auth, image):
              "answer_type": "mark"},
         ]}],
     }
-    response = client.post("/api/v1/templates", json=body, headers=auth)
+    response = client.post("/api/v1/templates", json=body, headers=manager_headers(client))
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -115,7 +116,7 @@ def test_a_paper_cannot_be_given_someone_elses_student(client, auth, other_auth,
 
 def test_a_paper_cannot_join_a_sitting_of_another_paper(client, auth, uploaded_image):
     template = _choice_template(client, auth, uploaded_image())
-    other = make_template(client, auth, uploaded_image(colour=(1, 2, 3))).json()
+    other = make_template(client, manager_headers(client), uploaded_image(colour=(1, 2, 3))).json()
     cls = _class(client, auth)
     exam = client.put(f"/api/v1/exams/{uuid.uuid4()}", json={
         "class_id": cls["id"], "template_id": other["id"], "exam_date": "2026-09-25",
@@ -126,23 +127,24 @@ def test_a_paper_cannot_join_a_sitting_of_another_paper(client, auth, uploaded_i
     assert response.status_code == 400
 
 
-def test_an_edit_that_does_not_mention_the_name_box_keeps_it(client, auth, uploaded_image):
+def test_an_edit_that_does_not_mention_the_name_box_keeps_it(client, auth, uploaded_image,
+                                                              manager_auth):
     template = _choice_template(client, auth, uploaded_image())
     box = {"page_index": 0, "x": .8, "y": .05, "w": .15, "h": .04}
     set_ = client.patch(f"/api/v1/templates/{template['id']}",
-                        json={"name_box": box, "unit": "1-2"}, headers=auth).json()
+                        json={"name_box": box, "unit": "1-2"}, headers=manager_auth).json()
     assert set_["name_box"]["x"] == .8 and set_["unit"] == "1-2"
     # The phone's editor rewrites every page and knows nothing of name boxes.
     pages = [{"page_index": 0, "image_id": template["pages"][0]["image_id"], "boxes": []}]
     kept = client.patch(f"/api/v1/templates/{template['id']}", json={"pages": pages},
-                        headers=auth).json()
+                        headers=manager_auth).json()
     assert kept["name_box"] == set_["name_box"]
     cleared = client.patch(f"/api/v1/templates/{template['id']}", json={"name_box": None},
-                           headers=auth).json()
+                           headers=manager_auth).json()
     assert cleared["name_box"] is None
 
 
-def test_regrade_follows_a_fixed_key(client, auth, uploaded_image):
+def test_regrade_follows_a_fixed_key(client, auth, uploaded_image, manager_auth):
     template = _choice_template(client, auth, uploaded_image())
     cls = _class(client, auth)
     exam = client.put(f"/api/v1/exams/{uuid.uuid4()}", json={
@@ -158,7 +160,8 @@ def test_regrade_follows_a_fixed_key(client, auth, uploaded_image):
 
     pages = template["pages"]
     pages[0]["boxes"][0]["answer"] = "3"
-    client.patch(f"/api/v1/templates/{template['id']}", json={"pages": pages}, headers=auth)
+    client.patch(f"/api/v1/templates/{template['id']}", json={"pages": pages},
+                 headers=manager_auth)
     client.post(f"/api/v1/exams/{exam['client_uuid']}/regrade", headers=auth)
 
     after = client.get(f"/api/v1/grading-sessions/{paper}", headers=auth).json()

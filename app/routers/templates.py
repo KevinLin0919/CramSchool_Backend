@@ -22,7 +22,7 @@ from ..schemas import (
     TemplateSummary,
     TemplateUpdate,
 )
-from ..security import current_teacher
+from ..security import current_teacher, require_template_manager
 from ..storage import BlobStore
 
 router = APIRouter(prefix="/api/v1/templates", tags=["templates"])
@@ -172,11 +172,14 @@ def list_templates(
     return TemplateListResponse(templates=[_summary(r) for r in rows], sync_cursor=cursor)
 
 
+# Both only ever serve building a template, and both spend something real per
+# call (the detector's CPU, the OCR service's quota), so they go with the role
+# that builds templates.
 @router.post("/detect", response_model=DetectionResponse, summary="偵測答案區")
 def detect_template(
     payload: DetectionRequest,
     settings: Settings = Depends(get_settings),
-    _: Teacher = Depends(current_teacher),
+    _: Teacher = Depends(require_template_manager),
 ) -> DetectionResponse:
     return detect_layout(payload, settings)
 
@@ -185,7 +188,7 @@ def detect_template(
 def read_template_answers(
     payload: ReadAnswersRequest,
     settings: Settings = Depends(get_settings),
-    _: Teacher = Depends(current_teacher),
+    _: Teacher = Depends(require_template_manager),
 ) -> ReadAnswersResponse:
     return read_answers(payload, settings)
 
@@ -211,7 +214,7 @@ def get_template(
 def create_template(
     payload: TemplateCreate,
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(current_teacher),
+    teacher: Teacher = Depends(require_template_manager),
 ) -> TemplateDetail:
     template = ExamTemplate(
         exam_name=payload.exam_name.strip(),
@@ -230,21 +233,21 @@ def create_template(
     return detail(_get_or_404(db, template.id))
 
 
-# Any teacher, deliberately.
+# Template managers and admins only.
 #
-# Teachers are the people who keep the template list in order — renaming,
-# fixing an answer, retiring an old paper — so this is ordinary work for them,
-# not an admin's. An earlier build restricted it after a review showed any
-# teacher could rewrite a shared answer key; the school's call is that they
-# should. What keeps it accountable instead: `updated_by` records who made
-# each edit, deletion is soft (the row and every result graded against it
-# survive), and `If-Match` stops two editors silently overwriting each other.
+# A template is shared: every teacher grading that paper grades against the
+# same answer key, so a change made for one class silently changes the results
+# of all of them. Keeping the list is therefore a role (`template_manager`),
+# not something any teacher does in passing. What keeps the role accountable:
+# `updated_by` records who made each edit, deletion is soft (the row and every
+# result graded against it survive), and `If-Match` stops two editors silently
+# overwriting each other.
 @router.patch("/{template_id}", response_model=TemplateDetail, summary="更新模板")
 def update_template(
     template_id: int,
     payload: TemplateUpdate,
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(current_teacher),
+    teacher: Teacher = Depends(require_template_manager),
     if_match: str | None = Header(default=None, alias="If-Match"),
 ) -> TemplateDetail:
     """Optimistic locking via `If-Match: "<revision>"`.
@@ -291,7 +294,7 @@ def update_template(
 def delete_template(
     template_id: int,
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(current_teacher),
+    teacher: Teacher = Depends(require_template_manager),
 ) -> Response:
     """Soft delete, so an offline phone can learn about it on next sync.
 

@@ -1,8 +1,8 @@
 """The web editor's payload remains usable by the app and its grading pipeline."""
 
 
-def test_web_template_round_trip(client, auth, make_png):
-    code = client.post("/api/v1/auth/web-code", headers=auth)
+def test_web_template_round_trip(client, manager_auth, make_png):
+    code = client.post("/api/v1/auth/web-code", headers=manager_auth)
     assert code.status_code == 200, code.text
     login = client.post("/api/v1/auth/web-login", json={"code": code.json()["code"]})
     assert login.status_code == 200, login.text

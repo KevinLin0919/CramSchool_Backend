@@ -13,7 +13,7 @@ import typer
 from sqlalchemy import select
 
 from .db import SessionLocal
-from .models import ApiToken, InviteCode, Teacher
+from .models import ROLES, ApiToken, InviteCode, Teacher
 from .security import generate_token, hash_token
 
 app = typer.Typer(help="補習班批改系統管理工具", no_args_is_help=True)
@@ -27,10 +27,14 @@ app.add_typer(tokens_app, name="tokens")
 def add_teacher(
     name: str = typer.Argument(..., help="姓名"),
     email: str | None = typer.Option(None, help="電子郵件"),
-    admin: bool = typer.Option(False, "--admin", help="建立為管理員"),
+    admin: bool = typer.Option(False, "--admin", help="建立為管理員（同 --role admin）"),
+    role: str = typer.Option("teacher", help="teacher / template_manager / admin"),
 ) -> None:
+    role = "admin" if admin else role
+    if role not in ROLES:
+        raise typer.BadParameter(f"角色只能是 {' / '.join(ROLES)}")
     with SessionLocal() as db:
-        teacher = Teacher(name=name, email=email, role="admin" if admin else "teacher")
+        teacher = Teacher(name=name, email=email, role=role)
         db.add(teacher)
         db.commit()
         db.refresh(teacher)
@@ -47,7 +51,24 @@ def list_teachers() -> None:
         for t in rows:
             state = "停用" if t.disabled_at else "啟用"
             active = sum(1 for tk in t.tokens if tk.revoked_at is None)
-            typer.echo(f"#{t.id:<4} {t.name:<12} {t.role:<8} {state}  裝置 {active}")
+            typer.echo(f"#{t.id:<4} {t.name:<12} {t.role:<16} {state}  裝置 {active}")
+
+
+@teachers_app.command("set-role")
+def set_role(
+    teacher_id: int,
+    role: str = typer.Argument(..., help="teacher / template_manager / admin"),
+) -> None:
+    """Takes effect on the next request; the app picks it up from /auth/me."""
+    if role not in ROLES:
+        raise typer.BadParameter(f"角色只能是 {' / '.join(ROLES)}")
+    with SessionLocal() as db:
+        teacher = db.get(Teacher, teacher_id)
+        if teacher is None:
+            raise typer.BadParameter("找不到教師")
+        before, teacher.role = teacher.role, role
+        db.commit()
+        typer.echo(f"#{teacher.id} {teacher.name}：{before} → {role}")
 
 
 @teachers_app.command("disable")

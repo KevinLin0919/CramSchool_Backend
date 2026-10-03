@@ -77,6 +77,12 @@ export default function App() {
 
   if (!signedIn) return <Login onDone={() => setSignedIn(true)} />;
 
+  // Templates are shared by every teacher grading that paper, so building and
+  // editing them is a template manager's (or an admin's). The API refuses the
+  // rest; this only keeps the page from offering it.
+  const canTemplates = me?.role === "admin" || me?.role === "template_manager";
+  const roleName = me?.role === "admin" ? "管理員" : me?.role === "template_manager" ? "模板管理者" : "老師";
+
   const nav = [
     { key: "overview", text: "總覽", icon: Icon.overview, path: "/overview" },
     { key: "exams", text: "考試", icon: Icon.exam, path: "/exams", also: ["exam"] },
@@ -93,7 +99,7 @@ export default function App() {
         </div>
         <Search classes={classes} />
         <nav className="nav" aria-label="主選單">
-          {WITH_TEMPLATES && (
+          {WITH_TEMPLATES && canTemplates && (
             <button type="button" className={route.kind === "templates" ? "on" : ""} onClick={() => go("/templates")}>
               <Icon.template />建立模板
             </button>
@@ -115,12 +121,15 @@ export default function App() {
         </div>
         <div className="me">
           <div className="avatar">{me?.name.slice(0, 1) ?? "·"}</div>
-          <div><b style={{ fontSize: 13 }}>{me?.name ?? "載入中"}</b><small>{me?.role === "admin" ? "管理員" : "老師"}</small></div>
+          <div><b style={{ fontSize: 13 }}>{me?.name ?? "載入中"}</b><small>{me ? roleName : ""}</small></div>
           <button type="button" className="linkbtn" onClick={signOut}>登出</button>
         </div>
       </aside>
       <main className="main">
-        {WITH_TEMPLATES && route.kind === "templates" ? (
+        {WITH_TEMPLATES && route.kind === "templates" && !canTemplates ? (
+          <div className="card empty">{me ? "模板由模板管理者維護。需要新增或修改模板，請聯絡模板管理者。" : "載入中…"}</div>
+        ) :
+         WITH_TEMPLATES && route.kind === "templates" ? (
           route.id === "edit" ? <TemplateEditor key="new" /> :
           route.id && /^\d+$/.test(route.id) ? <TemplateEditor key={route.id} templateId={Number(route.id)} /> :
           <TemplatesPage key={route.id ?? ""} openList={route.id === "list"} />

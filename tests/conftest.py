@@ -86,6 +86,17 @@ def admin_auth(client) -> dict[str, str]:
     return {"Authorization": f"Bearer {_enrol(client, '林主任', 'admin')}"}
 
 
+def manager_headers(client: TestClient) -> dict[str, str]:
+    """A fresh template manager, for helpers that build a template on a teacher's behalf."""
+    return {"Authorization": f"Bearer {_enrol(client, '課程組', 'template_manager')}"}
+
+
+@pytest.fixture
+def manager_auth(client) -> dict[str, str]:
+    """Someone who keeps the shared templates, and nothing school-wide beyond that."""
+    return {"Authorization": f"Bearer {_enrol(client, '課程組', 'template_manager')}"}
+
+
 @pytest.fixture
 def other_auth(client) -> dict[str, str]:
     """A second teacher at the same school, for anything about isolation.

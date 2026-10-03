@@ -34,10 +34,10 @@ def _page(make_png) -> str:
     return base64.b64encode(make_png()).decode()
 
 
-def test_read_answers_disabled(client, auth, monkeypatch):
+def test_read_answers_disabled(client, manager_auth, monkeypatch):
     monkeypatch.setattr(get_settings(), "google_vision_api_key", None)
     res = client.post("/api/v1/templates/read-answers",
-                      json={"image_base64": "", "boxes": []}, headers=auth)
+                      json={"image_base64": "", "boxes": []}, headers=manager_auth)
     assert res.status_code == 503
     assert res.json()["detail"] == "正解辨識尚未啟用"
 
@@ -47,7 +47,7 @@ def test_read_answers_requires_login(client):
     assert res.status_code == 401
 
 
-def test_read_answers_in_order_and_batched(client, auth, make_png, vision):
+def test_read_answers_in_order_and_batched(client, manager_auth, make_png, vision):
     # 20 cells → two requests to Google (16 + 4), answers back in cell order.
     def reply(body):
         return httpx.Response(200, json={"responses": [
@@ -57,7 +57,7 @@ def test_read_answers_in_order_and_batched(client, auth, make_png, vision):
     vision(reply)
     boxes = [[i, 0, i + 1, 1] for i in range(20)]
     res = client.post("/api/v1/templates/read-answers",
-                      json={"image_base64": _page(make_png), "boxes": boxes}, headers=auth)
+                      json={"image_base64": _page(make_png), "boxes": boxes}, headers=manager_auth)
     assert res.status_code == 200
     texts = [r["text"] for r in res.json()["results"]]
     assert texts == [str(n) for n in range(16)] + [str(n) for n in range(4)]
@@ -65,7 +65,7 @@ def test_read_answers_in_order_and_batched(client, auth, make_png, vision):
     assert all(c["key"] == "test-key" for c in vision.calls)
 
 
-def test_read_answers_skips_empty_cells_and_hides_errors(client, auth, make_png, vision):
+def test_read_answers_skips_empty_cells_and_hides_errors(client, manager_auth, make_png, vision):
     def reply(body):
         return httpx.Response(200, json={"responses": [
             {"error": {"message": "internal detail"}},
@@ -76,21 +76,22 @@ def test_read_answers_skips_empty_cells_and_hides_errors(client, auth, make_png,
     # The middle box lies off the page and is never sent.
     boxes = [[0, 0, 1, 1], [5000, 5000, 5001, 5001], [1, 1, 2, 2]]
     res = client.post("/api/v1/templates/read-answers",
-                      json={"image_base64": _page(make_png), "boxes": boxes}, headers=auth)
+                      json={"image_base64": _page(make_png), "boxes": boxes}, headers=manager_auth)
     assert res.status_code == 200
     assert [r["text"] for r in res.json()["results"]] == ["", "", "B"]
     assert [c["count"] for c in vision.calls] == [2]
 
 
-def test_read_answers_upstream_failure(client, auth, make_png, vision):
+def test_read_answers_upstream_failure(client, manager_auth, make_png, vision):
     vision(lambda body: httpx.Response(500))
     res = client.post("/api/v1/templates/read-answers",
-                      json={"image_base64": _page(make_png), "boxes": [[0, 0, 1, 1]]}, headers=auth)
+                      json={"image_base64": _page(make_png), "boxes": [[0, 0, 1, 1]]},
+                      headers=manager_auth)
     assert res.status_code == 502
 
 
-def test_read_answers_rejects_bad_image(client, auth, vision):
+def test_read_answers_rejects_bad_image(client, manager_auth, vision):
     vision(lambda body: httpx.Response(200, json={"responses": []}))
     body = {"image_base64": "bm90IGFuIGltYWdl", "boxes": [[0, 0, 1, 1]]}
-    res = client.post("/api/v1/templates/read-answers", json=body, headers=auth)
+    res = client.post("/api/v1/templates/read-answers", json=body, headers=manager_auth)
     assert res.status_code == 400
