@@ -89,6 +89,19 @@ def _now() -> Mapped[datetime]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# Who may do what, from least to most.
+#
+# teacher           grades papers against the shared templates; cannot change them.
+# template_manager  keeps the shared templates: creates, edits and retires them.
+#                   An answer key is shared by every teacher who grades against
+#                   it, so changing one changes everybody's results — that is
+#                   why it is a role and not something any teacher does.
+# admin             everything above, plus what reaches across the whole school
+#                   (the training-data export, hard-deleting a student).
+ROLES = ("teacher", "template_manager", "admin")
+TEMPLATE_ROLES = frozenset({"template_manager", "admin"})
+
+
 class Teacher(Base):
     __tablename__ = "teachers"
 
@@ -109,7 +122,7 @@ class Teacher(Base):
     tokens: Mapped[list[ApiToken]] = relationship(back_populates="teacher")
 
     __table_args__ = (
-        CheckConstraint("role IN ('teacher','admin')", name="ck_teacher_role"),
+        CheckConstraint("role IN ('teacher','template_manager','admin')", name="ck_teacher_role"),
         UniqueConstraint("microsoft_oid", name="uq_teacher_microsoft_oid"),
     )
 

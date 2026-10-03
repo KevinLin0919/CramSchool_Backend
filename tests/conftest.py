@@ -85,6 +85,12 @@ def admin_auth(client) -> dict[str, str]:
 
 
 @pytest.fixture
+def manager_auth(client) -> dict[str, str]:
+    """Someone who keeps the shared templates, and nothing school-wide beyond that."""
+    return {"Authorization": f"Bearer {_enrol(client, '課程組', 'template_manager')}"}
+
+
+@pytest.fixture
 def other_auth(client) -> dict[str, str]:
     """A second teacher at the same school, for anything about isolation.
 
