@@ -708,7 +708,9 @@ def test_a_teacher_cannot_change_the_shared_templates(client, auth, uploaded_ima
     image = uploaded_image()
     template_id = make_template(client, manager_auth, image).json()["id"]
 
-    assert make_template(client, auth, image).status_code == 403
+    refused = make_template(client, auth, image)
+    assert refused.status_code == 403
+    assert "模板管理者" in refused.json()["detail"]     # older apps show this as-is
     assert client.patch(f"/api/v1/templates/{template_id}",
                         json={"exam_name": "改成別的"}, headers=auth).status_code == 403
     assert client.delete(f"/api/v1/templates/{template_id}",

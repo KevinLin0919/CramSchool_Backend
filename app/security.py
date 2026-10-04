@@ -97,5 +97,8 @@ def require_admin(teacher: Teacher = Depends(current_teacher)) -> Teacher:
 
 def require_template_manager(teacher: Teacher = Depends(current_teacher)) -> Teacher:
     if teacher.role not in TEMPLATE_ROLES:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要模板管理權限")
+        # Shown verbatim by the app, including builds that predate the role
+        # and still offer the buttons — so it says who to ask, not just "no".
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="模板只能由模板管理者新增或修改，請聯絡模板管理者")
     return teacher
