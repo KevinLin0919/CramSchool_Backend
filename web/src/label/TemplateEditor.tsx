@@ -429,6 +429,15 @@ export default function TemplateEditor({ templateId }: { templateId?: number }) 
     setSelected(-1);
   };
 
+  // A new paper that turned out to be the wrong one is thrown away whole, so
+  // the teacher can upload the right one instead of unpicking this one.
+  const discardDraft = async () => {
+    if (!draft || draft.id || saving) return;
+    if (!await askConfirm({ title: "捨棄這份模板", message: `「${name || draft.name}」的頁面與標註都會捨棄，無法復原。確定要捨棄並重新上傳嗎？`, confirmText: "捨棄", danger: true })) return;
+    setDraft(null);
+    go("/templates");
+  };
+
   const reload = async () => {
     if (!draft?.id || locked) return;
     if (!await askConfirm({ title: "重新載入模板", message: "重新載入會捨棄尚未儲存的變更，確定繼續嗎？", confirmText: "重新載入", danger: true })) return;
@@ -617,6 +626,11 @@ export default function TemplateEditor({ templateId }: { templateId?: number }) 
             <div className="ds-card ds-card--sunken panel-card">
               <div className="panel-actions">
                 <button onClick={() => void clearLabels()} disabled={locked} className="ds-btn ds-btn--danger ds-btn--sm">清除{pageCount > 1 ? "這一面的" : ""}標註</button>
+                {draft && !draft.id && (
+                  <button onClick={() => void discardDraft()} disabled={saving} className="ds-btn ds-btn--ghost ds-btn--sm">
+                    <X size={14} /> 捨棄並重新上傳
+                  </button>
+                )}
               </div>
               {firstInvalidPage >= 0 && firstInvalidPage !== pageNo && (
                 <p className="hint-text field-error">第 {firstInvalidPage + 1} 面有正解格式不對的格子。</p>

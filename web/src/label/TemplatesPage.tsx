@@ -48,9 +48,18 @@ function UploadPanel() {
   live.current = candidates;
   const nextKey = useRef(0);
 
-  // A half-made paper from an earlier visit is reopened, not lost.
-  const resumable = getDraft();
-  const canResume = !!resumable && !resumable.id;
+  // A half-made paper from an earlier visit is reopened, not lost — unless it
+  // was the wrong paper, and then the teacher throws it away and starts over.
+  const [resumable, setResumable] = useState(() => { const d = getDraft(); return d && !d.id ? d : null; });
+  const canResume = !!resumable;
+
+  const discard = async () => {
+    if (!resumable) return;
+    if (!await askConfirm({ title: "捨棄未儲存的模板", message: `「${resumable.name}」的標註都還沒儲存，捨棄後無法復原。確定要捨棄嗎？`, confirmText: "捨棄", danger: true })) return;
+    setDraft(null);
+    setResumable(null);
+    showToast("已捨棄未儲存的模板", "info");
+  };
 
   // Previews not taken into a draft are freed on the way out.
   useEffect(() => () => {
@@ -114,9 +123,10 @@ function UploadPanel() {
   return (
     <div className="upload-area">
       {canResume && (
-        <div className="ds-card resume-card">
-          <span>有一份尚未儲存的模板「{resumable!.name}」（{resumable!.pages.length} 面）</span>
+        <div className="ds-card resume-card" role="status">
+          <span className="resume-card__text">有一份尚未儲存的模板「{resumable!.name}」（{resumable!.pages.length} 面）</span>
           <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={() => go("/templates/edit")}>繼續標註</button>
+          <button className="ds-btn ds-btn--ghost ds-btn--sm ds-btn--icon" onClick={() => void discard()} title="捨棄這份未儲存的模板" aria-label="捨棄這份未儲存的模板"><X size={14} /></button>
         </div>
       )}
       <section className="upload-section">
