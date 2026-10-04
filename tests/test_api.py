@@ -176,9 +176,9 @@ def test_image_dimensions_are_read_from_the_file(client, auth, uploaded_image):
 # ── 模板 ─────────────────────────────────────────────────────────────────────
 
 
-def test_create_and_read_template(client, auth, uploaded_image):
+def test_create_and_read_template(client, auth, uploaded_image, manager_auth):
     image = uploaded_image()
-    created = make_template(client, auth, image, boxes=3)
+    created = make_template(client, manager_auth, image, boxes=3)
     assert created.status_code == 201, created.text
     body = created.json()
     assert body["annotation_count"] == 3
@@ -217,24 +217,24 @@ def _template_with_answer_type(client, auth, image, answer_type):
     )
 
 
-def test_choice_is_an_accepted_answer_type(client, auth, uploaded_image):
+def test_choice_is_an_accepted_answer_type(client, auth, uploaded_image, manager_auth):
     """A multiple-choice cell holds exactly one character, and the template is
     the only thing that knows that — the answer key's own shape does not say
     it, since a one-digit answer can equally belong to a fill-in blank."""
     image = uploaded_image()
-    created = _template_with_answer_type(client, auth, image, "choice")
+    created = _template_with_answer_type(client, manager_auth, image, "choice")
     assert created.status_code == 201, created.text
 
     fetched = client.get(f"/api/v1/templates/{created.json()['id']}", headers=auth)
     assert fetched.json()["pages"][0]["boxes"][0]["answer_type"] == "choice"
 
 
-def test_unknown_answer_type_is_rejected(client, auth, uploaded_image):
+def test_unknown_answer_type_is_rejected(client, manager_auth, uploaded_image):
     image = uploaded_image()
-    assert _template_with_answer_type(client, auth, image, "bogus").status_code == 422
+    assert _template_with_answer_type(client, manager_auth, image, "bogus").status_code == 422
 
 
-def test_duplicate_question_numbers_are_rejected(client, auth, uploaded_image):
+def test_duplicate_question_numbers_are_rejected(client, auth, uploaded_image, manager_auth):
     image = uploaded_image()
     response = client.post(
         "/api/v1/templates",
@@ -251,28 +251,28 @@ def test_duplicate_question_numbers_are_rejected(client, auth, uploaded_image):
                 }
             ],
         },
-        headers=auth,
+        headers=manager_auth,
     )
     assert response.status_code == 422
 
 
-def test_referencing_a_missing_image_is_rejected(client, auth):
+def test_referencing_a_missing_image_is_rejected(client, auth, manager_auth):
     response = client.post(
         "/api/v1/templates",
         json={
             "exam_name": "沒有圖",
             "pages": [{"page_index": 0, "image_id": 9999, "boxes": []}],
         },
-        headers=auth,
+        headers=manager_auth,
     )
     assert response.status_code == 400
     assert "不存在" in response.json()["detail"]
 
 
-def test_if_match_blocks_a_stale_overwrite(client, auth, admin_auth, uploaded_image):
+def test_if_match_blocks_a_stale_overwrite(client, auth, admin_auth, uploaded_image, manager_auth):
     """Two admins with the same template open; the second save must not win silently."""
     image = uploaded_image()
-    template_id = make_template(client, auth, image).json()["id"]
+    template_id = make_template(client, manager_auth, image).json()["id"]
 
     first = client.patch(
         f"/api/v1/templates/{template_id}",
@@ -294,10 +294,11 @@ def test_if_match_blocks_a_stale_overwrite(client, auth, admin_auth, uploaded_im
     ] == "王老師改的"
 
 
-def test_delete_is_soft_and_surfaces_as_a_tombstone(client, auth, admin_auth, uploaded_image):
+def test_delete_is_soft_and_surfaces_as_a_tombstone(client, auth, admin_auth, uploaded_image,
+                                                    manager_auth):
     """An offline phone has to be able to learn that a template disappeared."""
     image = uploaded_image()
-    template_id = make_template(client, auth, image).json()["id"]
+    template_id = make_template(client, manager_auth, image).json()["id"]
     before = client.get("/api/v1/templates", headers=auth).json()["sync_cursor"]
 
     assert client.delete(f"/api/v1/templates/{template_id}", headers=admin_auth).status_code == 204
@@ -313,22 +314,22 @@ def test_delete_is_soft_and_surfaces_as_a_tombstone(client, auth, admin_auth, up
     assert synced["templates"][0]["deleted_at"] is not None
 
 
-def test_sync_cursor_only_returns_changes(client, auth, uploaded_image):
+def test_sync_cursor_only_returns_changes(client, auth, uploaded_image, manager_auth):
     image = uploaded_image()
-    make_template(client, auth, image, name="第一份")
+    make_template(client, manager_auth, image, name="第一份")
     cursor = client.get("/api/v1/templates", headers=auth).json()["sync_cursor"]
 
     quiet = client.get("/api/v1/templates", params={"updated_since": cursor}, headers=auth)
     assert quiet.json()["templates"] == []
 
-    make_template(client, auth, image, name="第二份")
+    make_template(client, manager_auth, image, name="第二份")
     after = client.get("/api/v1/templates", params={"updated_since": cursor}, headers=auth)
     assert [t["exam_name"] for t in after.json()["templates"]] == ["第二份"]
 
 
-def test_master_image_widths_are_restricted(client, auth, uploaded_image):
+def test_master_image_widths_are_restricted(client, auth, uploaded_image, manager_auth):
     image = uploaded_image(width=2000, height=2600)
-    template_id = make_template(client, auth, image).json()["id"]
+    template_id = make_template(client, manager_auth, image).json()["id"]
 
     assert client.get(
         f"/api/v1/templates/{template_id}/master", params={"w": 1600}, headers=auth
@@ -339,9 +340,9 @@ def test_master_image_widths_are_restricted(client, auth, uploaded_image):
     assert rejected.status_code == 400
 
 
-def test_grade_and_subject_are_real_filters(client, auth, uploaded_image):
+def test_grade_and_subject_are_real_filters(client, auth, uploaded_image, manager_auth):
     image = uploaded_image()
-    make_template(client, auth, image, name="高一數學・段考一")
+    make_template(client, manager_auth, image, name="高一數學・段考一")
     assert len(client.get(
         "/api/v1/templates", params={"grade": "高一"}, headers=auth
     ).json()["templates"]) == 1
@@ -369,10 +370,11 @@ def session_payload(template_id, **overrides):
     return payload
 
 
-def test_reuploading_a_session_updates_instead_of_duplicating(client, auth, uploaded_image):
+def test_reuploading_a_session_updates_instead_of_duplicating(client, auth, uploaded_image,
+                                                              manager_auth):
     """The retry-after-dropped-Wi-Fi case. A duplicate here is a duplicate grade."""
     image = uploaded_image()
-    template_id = make_template(client, auth, image).json()["id"]
+    template_id = make_template(client, manager_auth, image).json()["id"]
     client_uuid = str(uuid.uuid4())
     payload = session_payload(template_id)
 
@@ -384,10 +386,11 @@ def test_reuploading_a_session_updates_instead_of_duplicating(client, auth, uplo
     assert len(client.get("/api/v1/grading-sessions", headers=auth).json()) == 1
 
 
-def test_a_teacher_sees_only_their_own_grading(client, auth, other_auth, uploaded_image):
+def test_a_teacher_sees_only_their_own_grading(client, auth, other_auth, uploaded_image,
+                                               manager_auth):
     """Templates are shared across a school; who graded whose paper is not."""
     image = uploaded_image()
-    template_id = make_template(client, auth, image).json()["id"]
+    template_id = make_template(client, manager_auth, image).json()["id"]
     mine, theirs = str(uuid.uuid4()), str(uuid.uuid4())
 
     client.put(f"/api/v1/grading-sessions/{mine}",
@@ -403,7 +406,8 @@ def test_a_teacher_sees_only_their_own_grading(client, auth, other_auth, uploade
     assert client.get(f"/api/v1/grading-sessions/{theirs}", headers=auth).status_code == 404
 
 
-def test_one_teacher_cannot_overwrite_anothers_grading(client, auth, other_auth, uploaded_image):
+def test_one_teacher_cannot_overwrite_anothers_grading(client, auth, other_auth, uploaded_image,
+                                                       manager_auth):
     """The hole that scoping reads would otherwise leave open.
 
     The upsert used to take the UUID at face value and reassign the row to
@@ -411,7 +415,7 @@ def test_one_teacher_cannot_overwrite_anothers_grading(client, auth, other_auth,
     record could still overwrite it, and become its owner in the process.
     """
     image = uploaded_image()
-    template_id = make_template(client, auth, image).json()["id"]
+    template_id = make_template(client, manager_auth, image).json()["id"]
     client_uuid = str(uuid.uuid4())
     client.put(f"/api/v1/grading-sessions/{client_uuid}",
                json=session_payload(template_id), headers=auth)
@@ -425,9 +429,10 @@ def test_one_teacher_cannot_overwrite_anothers_grading(client, auth, other_auth,
                       headers=auth).status_code == 200
 
 
-def test_one_teacher_cannot_delete_anothers_grading(client, auth, other_auth, uploaded_image):
+def test_one_teacher_cannot_delete_anothers_grading(client, auth, other_auth, uploaded_image,
+                                                    manager_auth):
     image = uploaded_image()
-    template_id = make_template(client, auth, image).json()["id"]
+    template_id = make_template(client, manager_auth, image).json()["id"]
     client_uuid = str(uuid.uuid4())
     client.put(f"/api/v1/grading-sessions/{client_uuid}",
                json=session_payload(template_id), headers=auth)
@@ -439,7 +444,7 @@ def test_one_teacher_cannot_delete_anothers_grading(client, auth, other_auth, up
 
 
 def test_training_export_is_not_scoped_to_one_teacher(client, auth, other_auth, admin_auth,
-                                                      uploaded_image):
+                                                      uploaded_image, manager_auth):
     """The one endpoint that deliberately crosses the boundary.
 
     Its reader is a training pipeline, not a teacher looking up a class. Split
@@ -447,7 +452,7 @@ def test_training_export_is_not_scoped_to_one_teacher(client, auth, other_auth, 
     small to train on, which is the whole reason it exists.
     """
     image = uploaded_image()
-    template_id = make_template(client, auth, image).json()["id"]
+    template_id = make_template(client, manager_auth, image).json()["id"]
     # A correction only becomes training data once it has a crop attached —
     # the label alone teaches nothing without the ink it labels.
     cell = uploaded_image(width=64, height=64, colour=(200, 200, 200))
@@ -461,9 +466,9 @@ def test_training_export_is_not_scoped_to_one_teacher(client, auth, other_auth, 
     assert len(rows) == 2, "a teacher's export should still carry the whole school's labels"
 
 
-def test_score_is_recomputed_not_trusted(client, auth, uploaded_image):
+def test_score_is_recomputed_not_trusted(client, auth, uploaded_image, manager_auth):
     image = uploaded_image()
-    template_id = make_template(client, auth, image).json()["id"]
+    template_id = make_template(client, manager_auth, image).json()["id"]
     body = client.put(
         f"/api/v1/grading-sessions/{uuid.uuid4()}",
         json=session_payload(template_id),
@@ -472,9 +477,10 @@ def test_score_is_recomputed_not_trusted(client, auth, uploaded_image):
     assert (body["correct_count"], body["total_count"]) == (1, 2)
 
 
-def test_teacher_correction_is_captured_with_a_timestamp(client, auth, uploaded_image):
+def test_teacher_correction_is_captured_with_a_timestamp(client, auth, uploaded_image,
+                                                         manager_auth):
     image = uploaded_image()
-    template_id = make_template(client, auth, image).json()["id"]
+    template_id = make_template(client, manager_auth, image).json()["id"]
     client_uuid = str(uuid.uuid4())
 
     client.put(
@@ -496,9 +502,9 @@ def test_teacher_correction_is_captured_with_a_timestamp(client, auth, uploaded_
 
 
 def test_corrections_export_yields_labelled_training_rows(client, auth, admin_auth,
-                                                          uploaded_image):
+                                                          uploaded_image, manager_auth):
     image = uploaded_image()
-    template_id = make_template(client, auth, image).json()["id"]
+    template_id = make_template(client, manager_auth, image).json()["id"]
 
     payload = session_payload(template_id)
     payload["answers"][1]["teacher_value"] = "2"
@@ -512,9 +518,9 @@ def test_corrections_export_yields_labelled_training_rows(client, auth, admin_au
     assert rows[0]["cell_image_url"].endswith("/content")
 
 
-def test_invalid_verdict_is_rejected(client, auth, uploaded_image):
+def test_invalid_verdict_is_rejected(client, auth, uploaded_image, manager_auth):
     image = uploaded_image()
-    template_id = make_template(client, auth, image).json()["id"]
+    template_id = make_template(client, manager_auth, image).json()["id"]
     payload = session_payload(template_id)
     payload["answers"][0]["verdict"] = "maybe"
     response = client.put(
@@ -524,9 +530,9 @@ def test_invalid_verdict_is_rejected(client, auth, uploaded_image):
 
 
 def test_session_against_a_deleted_template_is_rejected(client, auth, admin_auth,
-                                                        uploaded_image):
+                                                        uploaded_image, manager_auth):
     image = uploaded_image()
-    template_id = make_template(client, auth, image).json()["id"]
+    template_id = make_template(client, manager_auth, image).json()["id"]
     client.delete(f"/api/v1/templates/{template_id}", headers=admin_auth)
     response = client.put(
         f"/api/v1/grading-sessions/{uuid.uuid4()}",
@@ -638,7 +644,7 @@ def test_a_malformed_body_still_spends_the_budget(client):
 
 
 def test_one_teacher_cannot_read_anothers_cell_crops(client, auth, other_auth,
-                                                     uploaded_image, make_png):
+                                                     uploaded_image, make_png, manager_auth):
     """The hole that made scoping the session list cosmetic.
 
     Image ids are sequential. Before this, holding any device token was the
@@ -647,7 +653,7 @@ def test_one_teacher_cannot_read_anothers_cell_crops(client, auth, other_auth,
     grading sessions politely returned an empty array.
     """
     image = uploaded_image()
-    template_id = make_template(client, auth, image).json()["id"]
+    template_id = make_template(client, manager_auth, image).json()["id"]
 
     crop = client.post(
         "/api/v1/images",
@@ -671,14 +677,14 @@ def test_one_teacher_cannot_read_anothers_cell_crops(client, auth, other_auth,
 
 
 def test_every_teacher_can_still_read_the_shared_masters(client, auth, other_auth,
-                                                         uploaded_image):
+                                                         uploaded_image, manager_auth):
     """Answer keys are school-wide by design, and the master IS the paper.
 
     The narrow reading of the fix above would lock each teacher out of the
     templates they are supposed to grade against.
     """
     image = uploaded_image()
-    make_template(client, auth, image)
+    make_template(client, manager_auth, image)
     assert client.get(f"/api/v1/images/{image['id']}/content",
                       headers=other_auth).status_code == 200
 
@@ -695,31 +701,71 @@ def test_an_unreferenced_image_is_not_readable_by_anyone(client, auth, other_aut
                       headers=other_auth).status_code == 404
 
 
-def test_any_teacher_can_curate_templates(client, auth, other_auth, uploaded_image):
-    """Teachers keep the list in order, including templates they did not make.
-
-    The edit is attributed to whoever made it, and deleting is soft.
-    """
+def test_a_teacher_cannot_change_the_shared_templates(client, auth, uploaded_image,
+                                                      manager_auth):
+    """The quiet one: a changed answer key breaks nothing visible, it makes every
+    paper graded against it wrong, for every class that uses it."""
     image = uploaded_image()
-    template_id = make_template(client, auth, image).json()["id"]
+    template_id = make_template(client, manager_auth, image).json()["id"]
+
+    refused = make_template(client, auth, image)
+    assert refused.status_code == 403
+    assert "模板管理者" in refused.json()["detail"]     # older apps show this as-is
+    assert client.patch(f"/api/v1/templates/{template_id}",
+                        json={"exam_name": "改成別的"}, headers=auth).status_code == 403
+    assert client.delete(f"/api/v1/templates/{template_id}",
+                         headers=auth).status_code == 403
+    # …and can still use it.
+    assert client.get(f"/api/v1/templates/{template_id}", headers=auth).status_code == 200
+
+
+def test_a_template_manager_keeps_the_templates_and_nothing_more(
+        client, manager_auth, uploaded_image):
+    """Edits are attributed and deletion is soft; the school-wide admin tools stay admin's."""
+    image = uploaded_image()
+    template_id = make_template(client, manager_auth, image).json()["id"]
 
     assert client.patch(f"/api/v1/templates/{template_id}",
-                        json={"exam_name": "改成別的"}, headers=other_auth).status_code == 200
+                        json={"exam_name": "改成別的"}, headers=manager_auth).status_code == 200
     with SessionLocal() as db:
         editor = db.execute(
             text("SELECT updated_by FROM exam_templates WHERE id = :i"), {"i": template_id},
         ).scalar_one()
-    me = client.get("/api/v1/auth/me", headers=other_auth).json()["id"]
-    assert editor == me
-
+    assert editor == client.get("/api/v1/auth/me", headers=manager_auth).json()["id"]
     assert client.delete(f"/api/v1/templates/{template_id}",
-                         headers=other_auth).status_code == 204
+                         headers=manager_auth).status_code == 204
+
+    assert client.get("/api/v1/grading-sessions/exports/corrections",
+                      headers=manager_auth).status_code == 403
+    student = client.post("/api/v1/students", json={"name": "測試生"}, headers=manager_auth)
+    assert student.status_code == 201, student.text
+    assert client.delete(f"/api/v1/students/{student.json()['id']}",
+                         headers=manager_auth).status_code == 403
 
 
-def test_a_template_edit_records_who_made_it(client, auth, admin_auth, uploaded_image):
+def test_set_role_changes_what_a_teacher_may_do(client, auth, uploaded_image):
+    from typer.testing import CliRunner
+
+    from app.cli import app as cli
+
+    me = client.get("/api/v1/auth/me", headers=auth).json()["id"]
+    image = uploaded_image()
+    assert make_template(client, auth, image).status_code == 403
+
+    runner = CliRunner()
+    assert runner.invoke(cli, ["teachers", "set-role", str(me), "template_manager"]).exit_code == 0
+    assert client.get("/api/v1/auth/me", headers=auth).json()["role"] == "template_manager"
+    assert make_template(client, auth, image).status_code == 201
+
+    refused = runner.invoke(cli, ["teachers", "set-role", str(me), "owner"])
+    assert refused.exit_code != 0
+
+
+def test_a_template_edit_records_who_made_it(client, auth, admin_auth, uploaded_image,
+                                             manager_auth):
     """`created_by` is written once and never again, so it cannot answer this."""
     image = uploaded_image()
-    template_id = make_template(client, auth, image).json()["id"]
+    template_id = make_template(client, manager_auth, image).json()["id"]
 
     client.patch(f"/api/v1/templates/{template_id}",
                  json={"exam_name": "主任改的"}, headers=admin_auth)
@@ -831,7 +877,7 @@ def _labelled_cell(client, auth, admin_auth, uploaded_image, make_png, *,
                    teacher_value, leverage=None):
     """One graded paper whose single answer carries a label and a crop."""
     image = uploaded_image()
-    template_id = make_template(client, auth, image).json()["id"]
+    template_id = make_template(client, admin_auth, image).json()["id"]
     crop = client.post(
         "/api/v1/images",
         files={"file": ("cell.png", make_png(48, 48, (7, 7, 7)), "image/png")},
