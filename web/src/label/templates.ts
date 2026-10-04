@@ -26,11 +26,19 @@ type TemplateDetail = TemplateSummary & {
   name_box?: (NormalizedRect & { page_index: number }) | null
   pages: Page[]
 }
-export type TemplateDraft = {
-  id?: number; revision?: number; imageId?: number; pageIndex: number; pageCount: number
-  name: string; unit: string; optionCount: number
+// One side of the paper: its image, and the cells drawn on it in the 800×600
+// canvas space of that image.
+export type DraftPage = {
+  pageIndex: number; imageId?: number
   width: number; height: number; preview: string; blob: Blob
-  labels: Label[]; nameBox?: Rect | null; nameBoxDirty: boolean
+  labels: Label[]
+}
+export type NameBoxDraft = { pageIndex: number; rect: Rect }
+export type TemplateDraft = {
+  id?: number; revision?: number
+  name: string; unit: string; optionCount: number
+  pages: DraftPage[]
+  nameBox?: NameBoxDraft | null; nameBoxDirty: boolean
   // Retain the highest loaded number even when its box is deleted.
   maxQuestionNo: number
 }
@@ -88,10 +96,16 @@ export function mergeDetections(existing: Label[], detected: Label[]): Label[] {
   return [...merged, ...remaining]
 }
 
-export function numberedLabels(draft: TemplateDraft): Label[] {
-  const ordered = sortLabels(draft.labels, draft.width, draft.height)
-  let next = Math.max(draft.maxQuestionNo, ...draft.labels.map(l => l.questionNo ?? 0))
-  return ordered.map((label, i) => ({ ...label, questionNo: draft.id ? label.questionNo ?? ++next : i + 1 }))
+// Question numbers run across the whole paper, page after page: grading keys
+// answers by number per paper. A new paper is numbered in reading order from
+// the first page on; a saved one keeps its numbers and new cells continue
+// after the highest number it has ever had.
+export function numberPages<T extends Rect & { questionNo?: number }>(
+  pages: { width: number; height: number; labels: T[] }[], saved: boolean, maxQuestionNo: number,
+): T[][] {
+  let next = saved ? Math.max(maxQuestionNo, ...pages.flatMap(p => p.labels.map(l => l.questionNo ?? 0))) : 0
+  return pages.map(page => sortLabels(page.labels, page.width, page.height)
+    .map(label => ({ ...label, questionNo: saved ? label.questionNo ?? ++next : ++next })))
 }
 
 export async function listTemplates(search = ''): Promise<TemplateSummary[]> {
@@ -107,19 +121,23 @@ export async function masterBlob(id: number, width?: number, page = 0): Promise<
 export async function readTemplate(id: number): Promise<TemplateDraft> {
   const res = await apiFetch(`/api/v1/templates/${id}`)
   const data: TemplateDetail = await res.json()
-  const page = data.pages[0]
-  if (!page) throw new Error('模板沒有母卷影像')
-  const blob = await masterBlob(id, undefined, page.page_index)
-  return {
-    id, revision: data.revision, imageId: page.image_id, pageIndex: page.page_index,
-    pageCount: data.page_count, name: data.exam_name, unit: data.unit ?? '', optionCount: data.option_count,
-    width: page.image_width, height: page.image_height, blob, preview: URL.createObjectURL(blob),
+  if (!data.pages.length) throw new Error('模板沒有母卷影像')
+  const sorted = [...data.pages].sort((a, b) => a.page_index - b.page_index)
+  const blobs = await Promise.all(sorted.map(p => masterBlob(id, undefined, p.page_index)))
+  const pages: DraftPage[] = sorted.map((page, i) => ({
+    pageIndex: page.page_index, imageId: page.image_id,
+    width: page.image_width, height: page.image_height, blob: blobs[i]!, preview: URL.createObjectURL(blobs[i]!),
     labels: page.boxes.map(b => ({ ...toCanvas(b, page.image_width, page.image_height),
       questionNo: b.question_no, answer: b.answer, answerType: b.answer_type, answerTypeLocked: true, label: b.label })),
-    nameBox: data.name_box === undefined ? undefined : data.name_box && data.name_box.page_index === page.page_index
-      ? toCanvas(data.name_box, page.image_width, page.image_height) : null,
+  }))
+  const namePage = data.name_box ? pages.find(p => p.pageIndex === data.name_box!.page_index) : undefined
+  return {
+    id, revision: data.revision, name: data.exam_name, unit: data.unit ?? '', optionCount: data.option_count,
+    pages,
+    nameBox: data.name_box === undefined ? undefined : data.name_box && namePage
+      ? { pageIndex: namePage.pageIndex, rect: toCanvas(data.name_box, namePage.width, namePage.height) } : null,
     nameBoxDirty: false,
-    maxQuestionNo: Math.max(0, ...page.boxes.map(b => b.question_no)),
+    maxQuestionNo: Math.max(0, ...data.pages.flatMap(p => p.boxes.map(b => b.question_no))),
   }
 }
 
@@ -170,23 +188,27 @@ function optionCountFor(draft: TemplateDraft, boxes: { answer: string; answer_ty
 }
 
 export async function saveTemplate(draft: TemplateDraft): Promise<void> {
-  if (draft.pageCount > 1) throw new Error('多頁模板請在 App 編輯')
   if (!draft.name.trim()) throw new Error('請輸入考卷名稱')
   if (Array.from(draft.unit).length > 40) throw new Error('單元不可超過 40 字')
-  if (!draft.labels.some(l => l.answer.trim())) throw new Error('至少一格有正解才能存')
-  const labels = numberedLabels(draft)
-  const boxes = labels.map(l => ({ ...toNormalized(l, draft.width, draft.height),
-    question_no: l.questionNo, answer: normalizedAnswer(l), answer_type: l.answerType, label: l.label }))
-  const payload: Record<string, unknown> = { exam_name: draft.name.trim(), unit: draft.unit || null, option_count: optionCountFor(draft, boxes) }
-  if (draft.nameBox && (!draft.id || draft.nameBoxDirty)) payload.name_box = { page_index: draft.pageIndex, ...toNormalized(draft.nameBox, draft.width, draft.height) }
-  else if (draft.nameBoxDirty) payload.name_box = null
-  if (!draft.imageId) {
-    const form = new FormData()
-    form.append('file', draft.blob, 'master.jpg')
-    const res = await apiFetch('/api/v1/images', { method: 'POST', body: form })
-    draft.imageId = (await res.json()).id
+  if (!draft.pages.some(p => p.labels.some(l => l.answer.trim()))) throw new Error('至少一格有正解才能存')
+  const numbered = numberPages(draft.pages, !!draft.id, draft.maxQuestionNo)
+  const pageBoxes = draft.pages.map((page, i) => numbered[i]!.map(l => ({ ...toNormalized(l, page.width, page.height),
+    question_no: l.questionNo, answer: normalizedAnswer(l), answer_type: l.answerType, label: l.label })))
+  const payload: Record<string, unknown> = {
+    exam_name: draft.name.trim(), unit: draft.unit || null, option_count: optionCountFor(draft, pageBoxes.flat()),
   }
-  payload.pages = [{ page_index: draft.pageIndex, image_id: draft.imageId, boxes }]
+  const namePage = draft.nameBox ? draft.pages.find(p => p.pageIndex === draft.nameBox!.pageIndex) : undefined
+  if (draft.nameBox && namePage && (!draft.id || draft.nameBoxDirty)) {
+    payload.name_box = { page_index: namePage.pageIndex, ...toNormalized(draft.nameBox.rect, namePage.width, namePage.height) }
+  } else if (draft.nameBoxDirty) payload.name_box = null
+  for (const page of draft.pages) {
+    if (page.imageId) continue
+    const form = new FormData()
+    form.append('file', page.blob, `page-${page.pageIndex + 1}.jpg`)
+    const res = await apiFetch('/api/v1/images', { method: 'POST', body: form })
+    page.imageId = (await res.json()).id
+  }
+  payload.pages = draft.pages.map((page, i) => ({ page_index: page.pageIndex, image_id: page.imageId, boxes: pageBoxes[i] }))
   const res = await apiFetch(draft.id ? `/api/v1/templates/${draft.id}` : '/api/v1/templates', {
     method: draft.id ? 'PATCH' : 'POST',
     headers: draft.id ? { 'If-Match': `"${draft.revision}"` } : {},
@@ -195,12 +217,11 @@ export async function saveTemplate(draft: TemplateDraft): Promise<void> {
   const saved: TemplateDetail = await res.json()
   draft.id = saved.id
   draft.revision = saved.revision
-  draft.labels = labels
-  draft.maxQuestionNo = Math.max(draft.maxQuestionNo, ...labels.map(l => l.questionNo ?? 0))
+  draft.pages.forEach((page, i) => { page.labels = numbered[i]! })
+  draft.maxQuestionNo = Math.max(draft.maxQuestionNo, ...numbered.flat().map(l => l.questionNo ?? 0))
   draft.nameBoxDirty = false
 }
 export async function renameTemplate(template: TemplateSummary, name: string) {
-  if (template.page_count > 1) throw new Error('多頁模板請在 App 編輯')
   const res = await apiFetch(`/api/v1/templates/${template.id}`, { method: 'PATCH',
     headers: { 'If-Match': `"${template.revision}"` }, body: JSON.stringify({ exam_name: name }) })
   const saved: TemplateDetail = await res.json()
@@ -209,4 +230,19 @@ export async function renameTemplate(template: TemplateSummary, name: string) {
 }
 export async function deleteTemplate(id: number) {
   await apiFetch(`/api/v1/templates/${id}`, { method: 'DELETE' })
+}
+
+// A PDF answer key, rendered page by page on the server into the same JPEG a
+// photo becomes, so every later step treats the pages as photos.
+export type SourcePage = { source: string; pageNo: number; width: number; height: number; preview: string; blob: Blob }
+export async function pdfPages(file: File): Promise<SourcePage[]> {
+  const form = new FormData()
+  form.append('file', file, file.name)
+  const res = await apiFetch('/api/v1/templates/pdf-pages', { method: 'POST', body: form })
+  const data: { pages: { page_no: number; width: number; height: number; image_base64: string }[] } = await res.json()
+  return data.pages.map(p => {
+    const bytes = Uint8Array.from(atob(p.image_base64), c => c.charCodeAt(0))
+    const blob = new Blob([bytes], { type: 'image/jpeg' })
+    return { source: file.name, pageNo: p.page_no, width: p.width, height: p.height, blob, preview: URL.createObjectURL(blob) }
+  })
 }

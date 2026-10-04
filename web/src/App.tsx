@@ -101,7 +101,7 @@ export default function App() {
         <nav className="nav" aria-label="主選單">
           {WITH_TEMPLATES && canTemplates && (
             <button type="button" className={route.kind === "templates" ? "on" : ""} onClick={() => go("/templates")}>
-              <Icon.template />建立模板
+              <Icon.template />模板
             </button>
           )}
           {nav.map((n) => (
@@ -132,7 +132,7 @@ export default function App() {
          WITH_TEMPLATES && route.kind === "templates" ? (
           route.id === "edit" ? <TemplateEditor key="new" /> :
           route.id && /^\d+$/.test(route.id) ? <TemplateEditor key={route.id} templateId={Number(route.id)} /> :
-          <TemplatesPage key={route.id ?? ""} openList={route.id === "list"} />
+          <TemplatesPage tab={route.id === "list" ? "list" : "upload"} />
         ) :
          route.kind === "exam" && route.id ? <ExamReport uuid={route.id} /> :
          route.kind === "student" && route.id ? <StudentPage studentId={Number(route.id)} /> :

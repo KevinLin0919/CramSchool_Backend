@@ -1067,3 +1067,42 @@
 .tpl .ds-page-title { font-size: 30px; }
 /* A portrait master at full column width pushes 上傳並標註 below the fold. */
 .tpl .master-preview-image { max-height: 440px; width: auto; max-width: 100%; margin: 0 auto; display: block; }
+
+/* ── 模板 page: tabs, page picker, list ─────────────────────────────────── */
+.tpl .hub-tabs { margin: 4px 0 18px; }
+.tpl .hub-tabs .ds-segmented__btn { gap: 6px; }
+.tpl .resume-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; margin-bottom: 14px; font-size: var(--text-sm); color: var(--text-2); }
+.tpl .page-picker { display: flex; flex-direction: column; gap: 12px; padding: 16px; margin-top: 14px; }
+.tpl .page-picker .action-buttons { margin-top: 4px; }
+.tpl .page-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 12px; }
+.tpl .page-thumb {
+  position: relative; display: flex; flex-direction: column; gap: 6px; padding: 8px;
+  background: var(--surface-card); border: 2px solid var(--border-default); border-radius: var(--radius-md);
+  cursor: pointer; text-align: center; transition: border-color .15s, box-shadow .15s;
+}
+.tpl .page-thumb:hover { border-color: var(--accent-border); }
+.tpl .page-thumb.is-selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
+.tpl .page-thumb img { width: 100%; aspect-ratio: 3 / 4; object-fit: contain; background: var(--surface-sunken); border-radius: 4px; }
+.tpl .page-thumb__label { font-size: 12px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tpl .page-thumb__order {
+  position: absolute; top: 12px; left: 12px; padding: 2px 8px; border-radius: 99px;
+  background: var(--accent); color: var(--text-on-primary); font-size: 12px; font-weight: 600;
+}
+.tpl .list-panel { display: flex; flex-direction: column; gap: 12px; }
+.tpl .list-search { max-width: 360px; }
+.tpl .preview-modal { width: 900px; }
+.tpl .preview-body { display: flex; justify-content: center; background: var(--surface-sunken); }
+.tpl .preview-body .preview-full-img { max-width: 100%; max-height: 64vh; object-fit: contain; }
+.tpl .preview-nav { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border-default); }
+
+/* ── Editor: one tab per side of the paper ───────────────────────────────── */
+.tpl .page-tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 12px 0; }
+.tpl .page-tab {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px;
+  border: 1px solid var(--border-default); border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: var(--surface-sunken); color: var(--text-2); font-size: var(--text-sm); cursor: pointer;
+}
+.tpl .page-tab.is-active { background: var(--surface-card); color: var(--accent); border-color: var(--accent-border); font-weight: 600; }
+.tpl .page-tab.has-error { border-color: var(--red-600); }
+.tpl .page-tab__meta { font-size: 12px; color: var(--text-3); font-weight: 400; }
+.tpl .page-tab__name { font-size: 11px; color: var(--name-box); border: 1px solid var(--name-box); border-radius: 99px; padding: 0 6px; }

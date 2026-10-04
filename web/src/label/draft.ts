@@ -1,12 +1,14 @@
 import { guessAnswerType, type AnswerType, type Label, type Rect, type TemplateDraft } from "./templates";
 
-// The paper being edited, handed from the upload page to the editor. Its
-// preview is an object URL, so replacing or dropping it frees the old one.
+// The paper being edited, handed from the upload page to the editor. Page
+// previews are object URLs, so replacing or dropping the draft frees the ones
+// the new draft does not carry over.
 let current: TemplateDraft | null = null;
 
 export function getDraft() { return current; }
 export function setDraft(value: TemplateDraft | null) {
-  if (current && current.preview !== value?.preview) URL.revokeObjectURL(current.preview);
+  const kept = new Set(value?.pages.map((p) => p.preview) ?? []);
+  current?.pages.forEach((p) => { if (!kept.has(p.preview)) URL.revokeObjectURL(p.preview); });
   current = value;
 }
 

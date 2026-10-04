@@ -5,8 +5,8 @@ import {
 import { go } from "../App";
 import { toBase64 } from "./imaging";
 import {
-  CANVAS_HEIGHT, CANVAS_WIDTH, answerError, computeFit, guessAnswerType, mergeDetections, readTemplate,
-  saveTemplate, sortLabels, type AnswerType, type Rect, type TemplateDraft,
+  CANVAS_HEIGHT, CANVAS_WIDTH, answerError, computeFit, guessAnswerType, mergeDetections, numberPages, readTemplate,
+  saveTemplate, sortLabels, type AnswerType, type NameBoxDraft, type Rect, type TemplateDraft,
 } from "./templates";
 import { apiFetch } from "./http";
 import { getDraft, newUid, setDraft, toTemplateLabel, toViewLabel, type ViewLabel } from "./draft";
@@ -23,6 +23,7 @@ type Gesture =
   | { kind: "draw"; x: number; y: number }
   | { kind: "pan"; x: number; y: number }
   | { kind: "move"; index: number; dx: number; dy: number };
+type Detection = { state: "idle" | "running" | "done" | "error"; message?: string };
 
 // Printed answers come back as whatever Google read in the cell: keep the
 // first line, drop spaces and the brackets or full stop around it.
@@ -31,14 +32,18 @@ const cleanAnswer = (text: string) =>
     .replace(/\s+/g, "")
     .replace(/^[（(［[【]+|[)）］\]】。．.、,，]+$/g, "");
 
-// The original editor, on the report's page. `templateId` opens a saved
-// template; without it the editor works on the paper just uploaded.
+const pagesOf = (d: TemplateDraft | null | undefined) => d?.pages.map((p) => p.labels.map(toViewLabel)) ?? [];
+
+// The original editor, on the report's page, one side of the paper at a time.
+// `templateId` opens a saved template; without it the editor works on the
+// pages just uploaded. Question numbers run across every page.
 export default function TemplateEditor({ templateId }: { templateId?: number }) {
   const [draft, setLocalDraft] = useState<TemplateDraft | null>(() => (templateId ? null : getDraft()));
-  const [labels, setLabels] = useState<ViewLabel[]>(() => (templateId ? [] : (getDraft()?.labels ?? []).map(toViewLabel)));
+  const [pages, setPages] = useState<ViewLabel[][]>(() => (templateId ? [] : pagesOf(getDraft())));
+  const [pageNo, setPageNo] = useState(0);
   const [name, setName] = useState(() => (templateId ? "" : getDraft()?.name ?? ""));
   const [unit, setUnit] = useState(() => (templateId ? "" : getDraft()?.unit ?? ""));
-  const [nameBox, setNameBox] = useState<Rect | null | undefined>(() => (templateId ? undefined : getDraft()?.nameBox));
+  const [nameBox, setNameBox] = useState<NameBoxDraft | null | undefined>(() => (templateId ? undefined : getDraft()?.nameBox));
   const [nameBoxDirty, setNameBoxDirty] = useState(false);
   const [loadError, setLoadError] = useState("");
 
@@ -51,9 +56,8 @@ export default function TemplateEditor({ templateId }: { templateId?: number }) 
   const [ctrl, setCtrl] = useState(false);
   const [checked, setChecked] = useState<number[]>([]);
 
-  const [predicting, setPredicting] = useState(false);
-  const [predictionError, setPredictionError] = useState("");
-  const [predictionsLoaded, setPredictionsLoaded] = useState(() => !templateId && !!getDraft()?.labels.length);
+  const [detection, setDetection] = useState<Detection[]>(() =>
+    (templateId ? [] : (getDraft()?.pages ?? []).map((p) => ({ state: p.labels.length ? "done" : "idle" }))));
   const [ocr, setOcr] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -66,32 +70,44 @@ export default function TemplateEditor({ templateId }: { templateId?: number }) 
   const lastChecked = useRef(-1);
   const alive = useRef(true);
 
-  const readOnly = (draft?.pageCount ?? 0) > 1;
-  const locked = readOnly || saving || predicting;
+  const page = draft?.pages[pageNo];
+  const labels = pages[pageNo] ?? [];
+  const predicting = detection.some((d) => d.state === "running");
+  const locked = saving || predicting;
   const labelError = (l: ViewLabel) => answerError(toTemplateLabel(l));
-  const invalidAnswers = labels.some((l) => labelError(l));
-  const hasAnswers = labels.some((l) => l.expectedAnswer.trim());
+  const invalidAnswers = pages.some((ls) => ls.some((l) => labelError(l)));
+  const hasAnswers = pages.some((ls) => ls.some((l) => l.expectedAnswer.trim()));
   const invalidMetadata = !name.trim() || Array.from(unit).length > 40;
+  const pageNameBox = nameBox && page && nameBox.pageIndex === page.pageIndex ? nameBox.rect : null;
+
+  // Labels of the page on screen; everything below edits that page only.
+  const setLabels = useCallback((next: ViewLabel[] | ((ls: ViewLabel[]) => ViewLabel[]), at = pageNo) => {
+    setPages((ps) => ps.map((ls, i) => (i === at ? (typeof next === "function" ? next(ls) : next) : ls)));
+  }, [pageNo]);
 
   const questionNumbers = useMemo(() => {
     const numbers = new Map<number, number>();
     if (!draft) return numbers;
-    let next = Math.max(draft.maxQuestionNo, ...labels.map((l) => l.questionNo ?? 0));
-    sortLabels(labels, draft.width, draft.height).forEach((l, i) => numbers.set(l.uid, draft.id ? l.questionNo ?? ++next : i + 1));
+    const numbered = numberPages(
+      draft.pages.map((p, i) => ({ width: p.width, height: p.height, labels: pages[i] ?? [] })),
+      !!draft.id, draft.maxQuestionNo,
+    );
+    numbered.flat().forEach((l) => numbers.set(l.uid, l.questionNo ?? 0));
     return numbers;
-  }, [labels, draft]);
+  }, [pages, draft]);
 
   useEffect(() => () => { alive.current = false; }, []);
 
   // Leaving mid-edit (to the report and back) keeps the work: what is on
   // screen goes back into the draft the upload page will reopen.
-  const latest = useRef({ labels, name, unit, nameBox, nameBoxDirty });
-  latest.current = { labels, name, unit, nameBox, nameBoxDirty };
+  const latest = useRef({ pages, name, unit, nameBox, nameBoxDirty });
+  latest.current = { pages, name, unit, nameBox, nameBoxDirty };
   useEffect(() => () => {
     const d = getDraft();
     if (!d || d.id) return;
-    const { labels: ls, ...rest } = latest.current;
-    Object.assign(d, rest, { labels: ls.map(toTemplateLabel) });
+    const { pages: ps, ...rest } = latest.current;
+    Object.assign(d, rest);
+    d.pages.forEach((p, i) => { p.labels = (ps[i] ?? []).map(toTemplateLabel); });
   }, []);
 
   // A saved template is loaded here; a fresh upload arrives through the draft.
@@ -101,30 +117,35 @@ export default function TemplateEditor({ templateId }: { templateId?: number }) 
       return;
     }
     readTemplate(templateId).then((value) => {
-      if (!alive.current) { URL.revokeObjectURL(value.preview); return; }
+      if (!alive.current) { value.pages.forEach((p) => URL.revokeObjectURL(p.preview)); return; }
       setDraft(value);
       setLocalDraft(value);
-      setLabels(value.labels.map(toViewLabel));
+      setPages(pagesOf(value));
       setName(value.name);
       setUnit(value.unit);
       setNameBox(value.nameBox);
-      setPredictionsLoaded(true);
+      setDetection(value.pages.map(() => ({ state: "done" })));
     }).catch((e) => setLoadError(e instanceof Error ? e.message : "載入模板失敗"));
   }, [templateId]);
 
   useEffect(() => {
-    if (!draft) return;
+    if (!page) return;
     const img = new Image();
     img.onload = () => { image.current = img; setImageReady((n) => n + 1); };
-    img.src = draft.preview;
-  }, [draft]);
+    img.src = page.preview;
+  }, [page]);
+
+  // A different page starts unzoomed with nothing selected.
+  useEffect(() => {
+    setSelected(-1); setChecked([]); setPan({ x: 0, y: 0 }); setZoom(1); lastChecked.current = -1;
+  }, [pageNo]);
 
   // Paint whenever anything on the canvas changes.
   useEffect(() => {
     const el = canvas.current;
     const img = image.current;
     const ctx = el?.getContext("2d");
-    if (!el || !ctx || !img) return;
+    if (!el || !ctx || !img || img.src !== page?.preview) return;
     el.width = CANVAS_WIDTH;
     el.height = CANVAS_HEIGHT;
     ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -141,28 +162,29 @@ export default function TemplateEditor({ templateId }: { templateId?: number }) 
     });
     ctx.strokeStyle = colour("--name-box");
     ctx.lineWidth = 2;
-    if (nameBox) {
-      ctx.strokeRect(nameBox.x, nameBox.y, nameBox.width, nameBox.height);
+    if (pageNameBox) {
+      ctx.strokeRect(pageNameBox.x, pageNameBox.y, pageNameBox.width, pageNameBox.height);
       ctx.fillStyle = ctx.strokeStyle;
       ctx.font = '13px "Noto Sans TC", sans-serif';
-      ctx.fillText("姓名", nameBox.x, nameBox.y - 4);
+      ctx.fillText("姓名", pageNameBox.x, pageNameBox.y - 4);
     }
     if (drawing) {
       if (mode !== "name") ctx.strokeStyle = colour("--danger");
       ctx.strokeRect(drawing.x, drawing.y, drawing.width, drawing.height);
     }
     ctx.restore();
-  }, [labels, selected, zoom, pan, drawing, nameBox, mode, imageReady]);
+  }, [labels, selected, zoom, pan, drawing, pageNameBox, mode, imageReady, page]);
 
-  const detect = useCallback(async (existing: ViewLabel[]) => {
+  // Detection runs on one page and writes into that page, whichever is on screen by then.
+  const detect = useCallback(async (at: number, existing: ViewLabel[]) => {
     const value = getDraft();
-    if (!value || value.pageCount > 1) return;
-    setPredicting(true);
-    setPredictionError("");
+    const target = value?.pages[at];
+    if (!target) return;
+    setDetection((ds) => ds.map((d, i) => (i === at ? { state: "running" } : d)));
     try {
-      const { scale, offsetX, offsetY } = computeFit(value.width, value.height);
+      const { scale, offsetX, offsetY } = computeFit(target.width, target.height);
       const res = await apiFetch("/api/v1/templates/detect", {
-        method: "POST", body: JSON.stringify({ image_base64: await toBase64(value.blob) }),
+        method: "POST", body: JSON.stringify({ image_base64: await toBase64(target.blob) }),
       });
       const data: { detections: { bbox: number[]; confidence?: number }[] } = await res.json();
       const found: ViewLabel[] = data.detections.map((d) => {
@@ -176,22 +198,26 @@ export default function TemplateEditor({ templateId }: { templateId?: number }) 
       if (!alive.current) return;
       const merged = mergeDetections(existing.map(toTemplateLabel), found.map(toTemplateLabel)).map(toViewLabel);
       // A first detection is put in reading order, as the original did.
-      setLabels(existing.length ? merged : sortLabels(merged, value.width, value.height));
-      setPredictionsLoaded(true);
+      setLabels(existing.length ? merged : sortLabels(merged, target.width, target.height), at);
+      setDetection((ds) => ds.map((d, i) => (i === at ? { state: "done" } : d)));
     } catch (e) {
-      if (alive.current) setPredictionError(e instanceof Error ? e.message : "自動偵測失敗，請確認連線後重試");
-    } finally {
-      if (alive.current) setPredicting(false);
+      if (alive.current) setDetection((ds) => ds.map((d, i) => (i === at
+        ? { state: "error", message: e instanceof Error ? e.message : "自動偵測失敗，請確認連線後重試" } : d)));
     }
-  }, []);
+  }, [setLabels]);
 
-  // A fresh upload is detected once on arrival.
+  // A fresh upload is detected once on arrival, page after page.
   const detectedOnce = useRef(false);
   useEffect(() => {
-    if (templateId || detectedOnce.current || !draft || draft.id || labels.length) return;
+    if (templateId || detectedOnce.current || !draft || draft.id) return;
     detectedOnce.current = true;
-    void detect([]);
-  }, [templateId, draft, labels.length, detect]);
+    void (async () => {
+      for (let i = 0; i < draft.pages.length; i++) {
+        if (!alive.current) return;
+        if (!draft.pages[i]!.labels.length) await detect(i, []);
+      }
+    })();
+  }, [templateId, draft, detect]);
 
   // Keys: Ctrl shows the pan cursor; Delete removes the selected cell when
   // focus is not in a field.
@@ -274,8 +300,9 @@ export default function TemplateEditor({ templateId }: { templateId?: number }) 
     if (g?.kind !== "draw") return;
     const rect = drawing;
     setDrawing(null);
-    if (locked || !rect || rect.width <= 10 || rect.height <= 10) return;
-    if (mode === "name") { setNameBox(rect); setNameBoxDirty(true); return; }
+    if (locked || !rect || rect.width <= 10 || rect.height <= 10 || !page) return;
+    // One name box per paper: drawing it on this page moves it here.
+    if (mode === "name") { setNameBox({ pageIndex: page.pageIndex, rect }); setNameBoxDirty(true); return; }
     const next = [...labels, { ...rect, uid: newUid(), class: DEFAULT_CLASS, expectedAnswer: "", answerType: "choice" as AnswerType }];
     setLabels(next);
     setSelected(next.length - 1);
@@ -348,32 +375,33 @@ export default function TemplateEditor({ templateId }: { templateId?: number }) 
 
   const retryPrediction = async () => {
     if (locked) return;
-    if (labels.length && !await askConfirm({ title: "重新偵測", message: "偵測會校正重疊的答案框並補上新框；既有題號與正解會保留，確定繼續嗎？", confirmText: "重新偵測" })) return;
+    if (labels.length && !await askConfirm({ title: "重新偵測", message: "偵測會校正這一面重疊的答案框並補上新框；既有題號與正解會保留，確定繼續嗎？", confirmText: "重新偵測" })) return;
     setSelected(-1);
-    await detect(labels);
+    await detect(pageNo, labels);
   };
 
   const autoSort = () => {
-    if (locked || !draft || !labels.length) return;
-    setLabels(sortLabels(labels, draft.width, draft.height));
-    showToast(draft.height > draft.width
+    if (locked || !page || !labels.length) return;
+    setLabels(sortLabels(labels, page.width, page.height));
+    showToast(page.height > page.width
       ? "已偵測為直式考卷，排序完成（左半部優先，由上到下、由左到右）"
       : "已偵測為橫式考卷，排序完成（由上到下、由右到左）", "success");
   };
 
   // Printed answers on the master, read by Google Vision through the API and
-  // written into the empty 正解 fields. Cells already filled are left alone.
+  // written into the empty 正解 fields of this page. Cells already filled are left alone.
   const detectAnswers = async () => {
-    if (!draft || !labels.length) { showToast("請先在答案卷建立標註框", "error"); return; }
+    if (!page || !labels.length) { showToast("請先在答案卷建立標註框", "error"); return; }
+    const at = pageNo;
     setOcr(true);
     try {
-      const { scale, offsetX, offsetY } = computeFit(draft.width, draft.height);
+      const { scale, offsetX, offsetY } = computeFit(page.width, page.height);
       const boxes = labels.map((l) => {
         const x1 = (l.x - offsetX) / scale, y1 = (l.y - offsetY) / scale;
         return [x1, y1, x1 + l.width / scale, y1 + l.height / scale];
       });
       const res = await apiFetch("/api/v1/templates/read-answers", {
-        method: "POST", body: JSON.stringify({ image_base64: await toBase64(draft.blob), boxes }),
+        method: "POST", body: JSON.stringify({ image_base64: await toBase64(page.blob), boxes }),
       });
       const { results } = (await res.json()) as { results: { text: string }[] };
       if (!alive.current) return;
@@ -383,7 +411,7 @@ export default function TemplateEditor({ templateId }: { templateId?: number }) 
         if (!text || l.expectedAnswer.trim()) return l;
         filled++;
         return { ...l, expectedAnswer: text, ...(l.answerTypeLocked ? {} : { answerType: guessAnswerType(text) }) };
-      }));
+      }), at);
       showToast(filled ? `已填入 ${filled} 格正解，請再核對一次` : "沒有讀到新的正解", filled ? "success" : "info");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "答案偵測失敗，請稍後再試", "error");
@@ -394,7 +422,8 @@ export default function TemplateEditor({ templateId }: { templateId?: number }) 
 
   const clearLabels = async () => {
     if (locked || !labels.length) return;
-    if (!await askConfirm({ title: "清除標註", message: `確定要清除「${name}」的全部 ${labels.length} 個標註嗎？`, confirmText: "清除", danger: true })) return;
+    const where = (draft?.pages.length ?? 1) > 1 ? `第 ${pageNo + 1} 面` : `「${name}」`;
+    if (!await askConfirm({ title: "清除標註", message: `確定要清除${where}的全部 ${labels.length} 個標註嗎？`, confirmText: "清除", danger: true })) return;
     setLabels([]);
     setChecked([]);
     setSelected(-1);
@@ -411,7 +440,8 @@ export default function TemplateEditor({ templateId }: { templateId?: number }) 
     setSaving(true);
     setSaveError("");
     try {
-      Object.assign(draft, { name, unit, nameBox, nameBoxDirty, labels: labels.map(toTemplateLabel) });
+      Object.assign(draft, { name, unit, nameBox, nameBoxDirty });
+      draft.pages.forEach((p, i) => { p.labels = (pages[i] ?? []).map(toTemplateLabel); });
       await saveTemplate(draft);
       if (!alive.current) return;
       showToast("模板已儲存", "success");
@@ -428,21 +458,41 @@ export default function TemplateEditor({ templateId }: { templateId?: number }) 
     return (
       <div className="tpl"><div className="ds-card no-images">
         <p>{loadError}</p>
-        <button onClick={() => go("/templates")} className="ds-btn ds-btn--primary">回到建立模板</button>
+        <button onClick={() => go("/templates/list")} className="ds-btn ds-btn--primary">回到模板</button>
       </div></div>
     );
   }
+
+  const current = detection[pageNo];
+  const pageCount = draft?.pages.length ?? 0;
+  const firstInvalidPage = pages.findIndex((ls) => ls.some((l) => labelError(l)));
 
   return (
     <div className="tpl">
       <div className="label-container">
         <div className="editor-head">
-          <button type="button" className="crumb-link" onClick={() => go("/templates")}>建立模板</button>
+          <button type="button" className="crumb-link" onClick={() => go(draft?.id ? "/templates/list" : "/templates")}>模板</button>
           <span className="crumb-sep">/</span>
-          <span>{draft?.id ? "編輯模板" : "新模板"}</span>
+          <span>{draft?.id ? "編輯模板" : "上傳模板"}</span>
         </div>
         <div className="labeling-workspace labeling-workspace--embedded">
           <section className="ds-card canvas-card">
+            {pageCount > 1 && (
+              <div className="page-tabs" role="tablist" aria-label="考卷頁面">
+                {draft!.pages.map((p, i) => {
+                  const d = detection[i];
+                  const bad = (pages[i] ?? []).some((l) => labelError(l));
+                  return (
+                    <button key={p.pageIndex} type="button" role="tab" aria-selected={i === pageNo}
+                      className={`page-tab ${i === pageNo ? "is-active" : ""} ${bad ? "has-error" : ""}`} onClick={() => setPageNo(i)}>
+                      第 {i + 1} 面
+                      <span className="page-tab__meta">{d?.state === "running" ? "偵測中…" : `${(pages[i] ?? []).length} 格`}</span>
+                      {nameBox?.pageIndex === p.pageIndex && <span className="page-tab__name">姓名</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <div className="canvas-toolbar">
               <div className="ds-segmented ds-segmented--sm">
                 <button type="button" className={`ds-segmented__btn ${mode === "draw" ? "is-active" : ""}`} disabled={locked} onClick={() => setMode("draw")}>
@@ -469,16 +519,16 @@ export default function TemplateEditor({ templateId }: { templateId?: number }) 
             </div>
 
             <div className="canvas-footer">
-              {predicting ? (
+              {current?.state === "running" ? (
                 <span className="ds-badge ds-badge--pending"><Clock size={11} /> 偵測中…</span>
-              ) : predictionError ? (
+              ) : current?.state === "error" ? (
                 <>
-                  <span className="ds-badge ds-badge--wrong"><X size={11} /> {predictionError}</span>
-                  <button onClick={() => void retryPrediction()} disabled={locked} className="ds-btn ds-btn--ghost ds-btn--sm">重試</button>
+                  <span className="ds-badge ds-badge--wrong"><X size={11} /> {current.message}</span>
+                  <button onClick={() => void detect(pageNo, labels)} disabled={locked} className="ds-btn ds-btn--ghost ds-btn--sm">重試</button>
                 </>
-              ) : predictionsLoaded && !draft?.id && !labels.length ? (
+              ) : current?.state === "done" && !draft?.id && !labels.length ? (
                 <span className="ds-badge ds-badge--pending">沒有偵測到答案格，請在圖上手動框選</span>
-              ) : predictionsLoaded ? (
+              ) : current?.state === "done" ? (
                 <span className="ds-badge ds-badge--correct"><Check size={11} /> {draft?.id ? "已載入模板" : "已套用偵測結果"}</span>
               ) : (
                 <span className="ds-badge">{draft ? "等待偵測" : "載入中…"}</span>
@@ -493,9 +543,9 @@ export default function TemplateEditor({ templateId }: { templateId?: number }) 
                 <label className="hint-text">考卷名稱<input value={name} onChange={(e) => setName(e.target.value)} className="ds-input ds-input--sm" maxLength={255} disabled={locked} /></label>
                 <label className="hint-text">單元<input value={unit} onChange={(e) => setUnit(e.target.value)} className="ds-input ds-input--sm" maxLength={40} placeholder="選填，最多 40 字" disabled={locked} /></label>
               </div>
-              {readOnly && <p className="ds-banner ds-banner--warning">這份考卷有多頁，網頁目前只能檢視第一頁</p>}
+              {pageCount > 1 && <p className="hint-text">共 {pageCount} 面，題號跨面連續編號。</p>}
               {invalidMetadata && draft && <p className="hint-text field-error">請填入考卷名稱，單元最多 40 字。</p>}
-              <p className="ds-eyebrow panel-label">工具</p>
+              <p className="ds-eyebrow panel-label">工具{pageCount > 1 ? `（第 ${pageNo + 1} 面）` : ""}</p>
               <div className="batch-grid">
                 <button onClick={() => void retryPrediction()} disabled={locked} className="ds-btn ds-btn--sm"><RotateCw size={14} /> 重新偵測</button>
                 <button onClick={autoSort} disabled={locked || !labels.length} className="ds-btn ds-btn--sm"><ArrowUpDown size={14} /> 自動排序</button>
@@ -505,14 +555,14 @@ export default function TemplateEditor({ templateId }: { templateId?: number }) 
               </div>
               {nameBox && (
                 <div className="class-row name-box-row">
-                  <span className="ds-badge">已框選姓名欄</span>
+                  <span className="ds-badge">已框選姓名欄{pageCount > 1 ? `（第 ${(draft?.pages.findIndex((p) => p.pageIndex === nameBox.pageIndex) ?? 0) + 1} 面）` : ""}</span>
                   <button className="ds-btn ds-btn--danger ds-btn--sm" disabled={locked} onClick={() => { setNameBox(null); setNameBoxDirty(true); }}>刪除姓名框</button>
                 </div>
               )}
             </div>
 
             <div className="ds-card panel-card">
-              <p className="ds-eyebrow panel-label">目前標註（{labels.length}）</p>
+              <p className="ds-eyebrow panel-label">{pageCount > 1 ? `第 ${pageNo + 1} 面標註` : "目前標註"}（{labels.length}）</p>
               {labels.length > 0 && (
                 <>
                   <div className="batch-bar">
@@ -566,8 +616,11 @@ export default function TemplateEditor({ templateId }: { templateId?: number }) 
 
             <div className="ds-card ds-card--sunken panel-card">
               <div className="panel-actions">
-                <button onClick={() => void clearLabels()} disabled={locked} className="ds-btn ds-btn--danger ds-btn--sm">清除標註</button>
+                <button onClick={() => void clearLabels()} disabled={locked} className="ds-btn ds-btn--danger ds-btn--sm">清除{pageCount > 1 ? "這一面的" : ""}標註</button>
               </div>
+              {firstInvalidPage >= 0 && firstInvalidPage !== pageNo && (
+                <p className="hint-text field-error">第 {firstInvalidPage + 1} 面有正解格式不對的格子。</p>
+              )}
               {saveError && (
                 <p className="ds-banner ds-banner--danger" role="alert">{saveError}
                   {draft?.id && <button className="ds-btn ds-btn--sm" onClick={() => void reload()}>重新載入</button>}

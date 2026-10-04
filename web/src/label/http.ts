@@ -14,6 +14,9 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
     try {
       const body = await res.json();
       if (typeof body.detail === "string") detail = body.detail;
+      // Validation errors arrive as a list; the first one says what to fix.
+      else if (Array.isArray(body.detail) && typeof body.detail[0]?.msg === "string")
+        detail = body.detail[0].msg.replace(/^Value error, /, "");
     } catch { /* not JSON */ }
     if (res.status === 412) detail = "別人剛改過，請重新載入";
     throw new ApiError(res.status, detail);
