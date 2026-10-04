@@ -29,6 +29,10 @@ dependencies = [
     # handling wrong is the single most common way OIDC integrations become
     # forgeable.
     "pyjwt[crypto]==2.14.0",
+    # PDF answer keys become page images on the server: pdfium is Chrome's own
+    # engine, so CJK text, JBIG2 and JPX scans render without the browser
+    # needing fonts, CMaps or a CSP exception.
+    "pypdfium2==5.14.0",
 ]
 
 [project.optional-dependencies]

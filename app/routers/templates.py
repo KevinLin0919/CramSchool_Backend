@@ -1,6 +1,16 @@
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Header,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -11,6 +21,7 @@ from ..db import get_db
 from ..deps import get_store
 from ..detection import DetectionRequest, DetectionResponse, detect_layout
 from ..models import AnswerBox, ExamTemplate, Image, Teacher, TemplatePage
+from ..pdf_pages import MAX_PDF_BYTES, PdfPagesResponse, render_pdf
 from ..schemas import (
     AnswerBoxOut,
     NameBox,
@@ -191,6 +202,15 @@ def read_template_answers(
     _: Teacher = Depends(require_template_manager),
 ) -> ReadAnswersResponse:
     return read_answers(payload, settings)
+
+
+@router.post("/pdf-pages", response_model=PdfPagesResponse, summary="PDF 轉成母卷頁面")
+def pdf_pages(
+    file: UploadFile = File(...),
+    _: Teacher = Depends(require_template_manager),
+) -> PdfPagesResponse:
+    """Every page as a JPEG; the editor lets the teacher pick the paper's pages."""
+    return render_pdf(file.file.read(MAX_PDF_BYTES + 1))
 
 
 @router.get("/{template_id}", response_model=TemplateDetail, summary="取得模板細節")

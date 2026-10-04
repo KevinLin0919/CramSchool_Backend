@@ -157,6 +157,27 @@ class NameBox(BaseModel):
     h: Annotated[float, Field(gt=0, le=1.1)]
 
 
+def _check_pages(pages: list[TemplatePageIn]) -> list[TemplatePageIn]:
+    """One paper, one numbering.
+
+    Question numbers run across the whole paper: grading keys every answer by
+    number per paper, so a back page restarting at 1 saves fine and then
+    grades every cell against the wrong key. Refused here, at the one place
+    every editor's save passes through.
+    """
+    indexes = [p.page_index for p in pages]
+    if len(indexes) != len(set(indexes)):
+        raise ValueError("頁碼不可重複")
+    seen: dict[int, int] = {}
+    for page in pages:
+        for box in page.boxes:
+            first = seen.setdefault(box.question_no, page.page_index)
+            if first != page.page_index:
+                raise ValueError(f"第 {box.question_no} 題同時出現在第 {first + 1} 面和第 "
+                                 f"{page.page_index + 1} 面；題號要整份考卷連續編號")
+    return pages
+
+
 class TemplateCreate(BaseModel):
     exam_name: str = Field(min_length=1, max_length=255)
     grade: str | None = Field(default=None, max_length=20)
@@ -168,11 +189,8 @@ class TemplateCreate(BaseModel):
 
     @field_validator("pages")
     @classmethod
-    def _unique_page_indexes(cls, pages: list[TemplatePageIn]) -> list[TemplatePageIn]:
-        indexes = [p.page_index for p in pages]
-        if len(indexes) != len(set(indexes)):
-            raise ValueError("頁碼不可重複")
-        return pages
+    def _pages(cls, pages: list[TemplatePageIn]) -> list[TemplatePageIn]:
+        return _check_pages(pages)
 
 
 class TemplateUpdate(BaseModel):
@@ -189,6 +207,11 @@ class TemplateUpdate(BaseModel):
     option_count: int | None = Field(default=None, ge=2, le=10)
     name_box: NameBox | None = None
     pages: list[TemplatePageIn] | None = None
+
+    @field_validator("pages")
+    @classmethod
+    def _pages(cls, pages: list[TemplatePageIn] | None) -> list[TemplatePageIn] | None:
+        return None if pages is None else _check_pages(pages)
 
 
 class TemplateSummary(BaseModel):
