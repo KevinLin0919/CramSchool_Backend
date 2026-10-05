@@ -2,7 +2,7 @@
 // Each one answers a hover with the numbers behind the mark and, where it
 // makes sense, a click with a narrower view of the page.
 import { useMemo, useState } from "react";
-import { C, EChart, MONO, saveButton } from "./echart";
+import { C, EChart, MONO, SANS, saveButton } from "./echart";
 
 const tip = (rows: string) => `<div class="chart-tip">${rows}</div>`;
 const pctText = (k: number, n: number) => (n ? `${Math.round((k / n) * 100)}%` : "—");
@@ -71,8 +71,11 @@ export function OptionBars({ counts, answerKey, lure, answered, small, selected,
   const option = useMemo(() => {
     const opts = Object.keys(counts);
     const rev = [...opts].reverse();
+    // Colour alone is not enough: on a 是非 question ✕ can be the right answer,
+    // and a green ✕ next to a red ○ reads as backwards. The key says so in words.
+    const wide = opts.some((o) => label(o).length > 1);
     return {
-      grid: { left: 34, right: 96, top: 4, bottom: 4 },
+      grid: { left: wide ? 58 : 34, right: 150, top: 4, bottom: 4 },
       tooltip: {
         trigger: "item",
         formatter: (p: any) => {
@@ -97,7 +100,12 @@ export function OptionBars({ counts, answerKey, lure, answered, small, selected,
           },
         })),
         label: { show: true, position: "right", distance: 8, fontFamily: MONO, color: C.ink2, fontSize: 12.5,
-          formatter: (p: any) => `${p.value} 人${small ? "" : ` · ${pctText(p.value, answered)}`}` },
+          formatter: (p: any) => {
+            const o = rev[p.dataIndex];
+            const tag = o === answerKey ? "{key|✓ 正解}" : "";
+            return `${p.value} 人${small ? "" : ` · ${pctText(p.value, answered)}`}  ${tag}`;
+          },
+          rich: { key: { color: C.brand, fontWeight: 700, fontSize: 12.5, fontFamily: SANS } } },
       }],
     };
   }, [counts, answerKey, lure, answered, small, selected, label]);

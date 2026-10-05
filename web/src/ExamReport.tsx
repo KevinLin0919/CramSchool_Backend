@@ -176,6 +176,9 @@ function ItemDetail({ uuid, item, small }: { uuid: string; item: ItemStat; small
   const flags = item.flags.filter((f) => f !== "guessable");
   const options = Object.keys(item.options);
   const lure = item.top_wrong?.option ?? null;
+  // ○ and ✕ read as right and wrong at a glance; on a 是非 question they are
+  // the answers 是 and 非, so say which.
+  const optLabel = (o: string) => (item.answer_type === "mark" && (o === "O" || o === "X") ? `${label(o)} ${o === "O" ? "是" : "非"}` : label(o));
   const picked = option && who ? who.groups[option] ?? [] : [];
 
   return (
@@ -188,7 +191,7 @@ function ItemDetail({ uuid, item, small }: { uuid: string; item: ItemStat; small
             {flags.map((f) => <span key={f} className="pill bad">{FLAG_TEXT[f] ?? f}</span>)}
           </div>
           <span style={{ fontSize: 13, color: "var(--ink2)" }}>
-            標準答案 {label(item.key)} · 作答 {item.answered} 人 · 答對 {item.correct} 人
+            標準答案 {optLabel(item.key)} · 作答 {item.answered} 人 · 答對 {item.correct} 人
             {item.discrimination !== null ? ` · 鑑別度 ${item.discrimination.toFixed(2)}` : ""}
             {item.pending ? ` · 待確認 ${item.pending}` : ""}
           </span>
@@ -198,24 +201,24 @@ function ItemDetail({ uuid, item, small }: { uuid: string; item: ItemStat; small
       {flags.includes("unanimous_wrong") && <div className="callout">作答的人全選了同一個錯誤答案，建議先確認標準答案有沒有設錯。</div>}
       <div className="split">
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <span className="caption">選項分布 <span className="note" style={{ fontWeight: 400 }}>· 點選項看是誰選的</span></span>
+          <span className="caption">選項分布 <span className="note" style={{ fontWeight: 400 }}>· 綠色是正解、紅色是最多人選的錯誤選項 · 點選項看是誰選的</span></span>
           <OptionBars counts={item.options} answerKey={item.key} lure={lure} answered={item.answered} small={small}
-            selected={option} onSelect={setOption} label={label} />
-          {item.unchosen.length > 0 && <span className="note">沒有人選：{item.unchosen.map(label).join("、")}</span>}
+            selected={option} onSelect={setOption} label={optLabel} />
+          {item.unchosen.length > 0 && <span className="note">沒有人選：{item.unchosen.map(optLabel).join("、")}</span>}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <span className="caption">高分組 vs 低分組（各 27%）</span>
           {item.high_low ? (
             <>
               <GroupBars options={options} high={item.high_low.high} low={item.high_low.low}
-                highN={item.high_low.high_n} lowN={item.high_low.low_n} label={label} />
+                highN={item.high_low.high_n} lowN={item.high_low.low_n} label={optLabel} />
             </>
           ) : <span className="note">少於 10 份，不分組比較。</span>}
         </div>
       </div>
       {option && (
         <div className="box">
-          <span className="caption">選 {label(option)} 的 {picked.length} 位學生</span>
+          <span className="caption">選 {optLabel(option)} 的 {picked.length} 位學生</span>
           <div className="names">
             {picked.map((s) => <span key={s.session_uuid}>{s.student_name ?? "未配對"}</span>)}
             {picked.length === 0 && <span className="note">沒有</span>}
