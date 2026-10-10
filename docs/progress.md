@@ -17,6 +17,8 @@
 |---|---|---|
 | [AI 協作流程與文件](changes/ai-workflow-setup/spec.md) | 第一階段完成，後續 issue 待做 | — |
 | [紅筆對照：批完一頁只顯示要訂正的格子](changes/red-pen-review/spec.md) | 已併入 `develop`（iOS #5），QAT 148，待實機驗證 | cloud Claude |
+| 網頁：未配對考卷在考試報告直接選學生；學生頁的錯題依點進來的那次考試（可切換） | 後端 PR 待審，合併後重新部署 QAT | cloud Claude |
+| App：自動翻頁預設關閉（讓紅筆對照出現）、一面批完與整份批完會震動 | iOS PR 待審 | cloud Claude |
 | Q18 讀取視窗：已對位的格子上下可延伸到鄰格的邊 | 已併入 `develop`（iOS #4），QAT 148，待用模板 7 實機重掃 | cloud Claude |
 
 ## 待辦（還沒排進變更）

@@ -18,7 +18,7 @@ import "./label/label.css";
 const WITH_TEMPLATES = import.meta.env.VITE_WITH_LABEL === "1";
 
 // Hash routes, because the page is served as static files under /web and a
-// hash never reaches the server: #/exam/<uuid>, #/student/<id>, #/class/<id>.
+// hash never reaches the server: #/exam/<uuid>, #/student/<id>[/<exam uuid>], #/class/<id>.
 function useRoute() {
   const [hash, setHash] = useState(location.hash);
   useEffect(() => {
@@ -26,8 +26,8 @@ function useRoute() {
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);
-  const [, kind, id] = hash.replace(/^#/, "").split("/");
-  return { kind: kind || "overview", id };
+  const [, kind, id, sub] = hash.replace(/^#/, "").split("/");
+  return { kind: kind || "overview", id, sub };
 }
 
 export function go(path: string) {
@@ -135,7 +135,7 @@ export default function App() {
           <TemplatesPage tab={route.id === "list" ? "list" : "upload"} />
         ) :
          route.kind === "exam" && route.id ? <ExamReport uuid={route.id} /> :
-         route.kind === "student" && route.id ? <StudentPage studentId={Number(route.id)} /> :
+         route.kind === "student" && route.id ? <StudentPage studentId={Number(route.id)} examUuid={route.sub} /> :
          route.kind === "students" ? <StudentsPage classId={route.id ? Number(route.id) : undefined} /> :
          route.kind === "class" && route.id ? <ClassPage classId={Number(route.id)} /> :
          route.kind === "exams" ? <ExamList /> :

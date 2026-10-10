@@ -4,11 +4,15 @@ import { go, label, pct } from "./App";
 import { LineChart } from "./charts";
 import { ParentNote } from "./AiPanel";
 
-export default function StudentPage({ studentId }: { studentId: number }) {
+// `examUuid` is the exam the teacher came from. The wrong-answer card shows
+// that sitting; without it, the latest one.
+export default function StudentPage({ studentId, examUuid }: { studentId: number; examUuid?: string }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [trend, setTrend] = useState<Trend | null>(null);
   const [cls, setCls] = useState<ClassRoster | null>(null);
   const [error, setError] = useState("");
+  const [shown, setShown] = useState<string | undefined>(examUuid);
+  useEffect(() => setShown(examUuid), [studentId, examUuid]);
   useEffect(() => {
     setProfile(null); setTrend(null);
     api.profile(studentId).then(setProfile).catch((e) => setError(e.message));
@@ -23,6 +27,7 @@ export default function StudentPage({ studentId }: { studentId: number }) {
 
   const results = profile.results;
   const last = results[results.length - 1];
+  const picked = results.find((r) => r.exam_uuid === shown) ?? last;
   const rate = (pair: [number, number]) => (pair[1] ? pair[0] / pair[1] : null);
   const sum = (k: "choice" | "mark") => results.reduce((a, r) => [a[0] + r[k][0], a[1] + r[k][1]] as [number, number], [0, 0] as [number, number]);
   const overall = results.length ? results.reduce((a, r) => a + r.correct / r.total, 0) / results.length : null;
@@ -43,7 +48,7 @@ export default function StudentPage({ studentId }: { studentId: number }) {
           <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
             <h1>{profile.student_name}</h1>
             {cls && cls.students.length > 1 && (
-              <select className="switch" aria-label="切換同班學生" value="" onChange={(e) => go(`/student/${e.target.value}`)}>
+              <select className="switch" aria-label="切換同班學生" value="" onChange={(e) => go(`/student/${e.target.value}${shown ? `/${shown}` : ""}`)}>
                 <option value="" disabled>切換同班學生</option>
                 {cls.students.filter((s) => s.id !== studentId).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
@@ -73,15 +78,25 @@ export default function StudentPage({ studentId }: { studentId: number }) {
               />
             </section>
             <section className="card">
-              <div className="title"><h2>{last.unit ?? "最近一次"} 錯的題目</h2><span>{last.wrong.length} 題</span></div>
+              <div className="title" style={{ alignItems: "center" }}>
+                <h2>錯的題目</h2>
+                {results.length > 1 ? (
+                  <select className="switch" aria-label="選擇考試" style={{ maxWidth: 220 }} value={picked.exam_uuid} onChange={(e) => setShown(e.target.value)}>
+                    {[...results].reverse().map((r) => (
+                      <option key={r.exam_uuid} value={r.exam_uuid}>{r.unit ?? r.template_name} · {r.exam_date}{r === last ? "（最近一次）" : ""}</option>
+                    ))}
+                  </select>
+                ) : <span>{picked.unit ?? picked.exam_date}</span>}
+              </div>
+              <span className="note">{picked.template_name} · 錯 {picked.wrong.length} 題 · 答對 {picked.correct}/{picked.total}</span>
               <div className="wrongrow" style={{ background: "none", paddingTop: 0 }}><span className="caption">題號</span><span className="caption">寫了</span><span className="caption">答案</span><span /></div>
-              {last.wrong.slice(0, 10).map((w) => (
+              {picked.wrong.map((w) => (
                 <div key={w.question_no} className="wrongrow">
                   <b>第 {w.question_no} 題</b><b className="w">{label(w.chosen)}</b><b className="k">{label(w.key)}</b>
-                  <button type="button" className="linkbtn" style={{ marginLeft: 0, textAlign: "left" }} onClick={() => go(`/exam/${last.exam_uuid}`)}>看全班</button>
+                  <button type="button" className="linkbtn" style={{ marginLeft: 0, textAlign: "left" }} onClick={() => go(`/exam/${picked.exam_uuid}`)}>看全班</button>
                 </div>
               ))}
-              {last.wrong.length === 0 && <span className="note">全對。</span>}
+              {picked.wrong.length === 0 && <span className="note">{picked.pending ? `沒有錯的題目，另有 ${picked.pending} 格待確認。` : "全對。"}</span>}
             </section>
           </div>
           <ParentNote studentId={studentId} />

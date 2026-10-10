@@ -187,6 +187,9 @@ export const api = {
   me: () => request<Me>("/api/v1/auth/me"),
   overview: () => request<Overview>("/api/v1/overview"),
   classes: () => request<ClassRoster[]>("/api/v1/classes"),
+  // `null` unmatches. Same call the phone makes after its matching screen.
+  assign: (sessionUuid: string, studentId: number | null) =>
+    request<unknown>(`/api/v1/grading-sessions/${sessionUuid}/assignment`, { method: "PUT", body: JSON.stringify({ student_id: studentId }) }),
   regrade: (uuid: string) => request<Exam>(`/api/v1/exams/${uuid}/regrade`, { method: "POST" }),
   parentNote: (studentId: number) => request<AiRun>(`/api/v1/ai/students/${studentId}/parent-note`, { method: "POST" }),
   exams: () => request<Exam[]>("/api/v1/exams"),
