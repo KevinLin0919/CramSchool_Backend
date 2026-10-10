@@ -77,7 +77,8 @@ cd web && npm ci && npm run dev                         # 網頁版
 
 | 位置 | 用途 |
 |---|---|
-| `README.md` | 後端的設計說明（為什麼這樣做）、登入、角色、部署 |
+| `README.md` | 給使用者的簡介：這個專案在做什麼 |
+| `docs/design.md` | 後端的設計說明（為什麼這樣做）、登入、角色、部署、備份 |
 | `CONTEXT.md` | 領域用語：模板、母卷、格、待確認… |
 | `docs/adr/` | 系統層級的決策紀錄 |
 | `docs/progress.md` | 現況看板 |
