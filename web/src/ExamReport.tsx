@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, ItemStat, ItemStudents, Report } from "./api";
+import { api, ClassRoster, ItemStat, ItemStudents, Report } from "./api";
 import { go, label, pct } from "./App";
 import { GroupBars, Histogram, ItemBars, OptionBars } from "./charts";
 import { ExamSummary, ExplainItem } from "./AiPanel";
@@ -20,6 +20,8 @@ export default function ExamReport({ uuid }: { uuid: string }) {
   const [regrading, setRegrading] = useState(false);
   const [allStudents, setAllStudents] = useState(false);
   const [scoreFilter, setScoreFilter] = useState<number | null>(null);
+  const [roster, setRoster] = useState<ClassRoster | null>(null);
+  const [assigning, setAssigning] = useState<string | null>(null);
 
   function load() {
     api.report(uuid).then((r) => {
@@ -28,6 +30,18 @@ export default function ExamReport({ uuid }: { uuid: string }) {
     }).catch((e) => setError(e.message));
   }
   useEffect(() => { setReport(null); setSelected(null); setScoreFilter(null); load(); }, [uuid]); // eslint-disable-line
+  const classId = report?.exam.class_id;
+  useEffect(() => {
+    if (classId === undefined) return;
+    api.classes().then((cs) => setRoster(cs.find((c) => c.id === classId) ?? null)).catch(() => setRoster(null));
+  }, [classId]);
+
+  async function assign(sessionUuid: string, studentId: number) {
+    setAssigning(sessionUuid);
+    try { await api.assign(sessionUuid, studentId); load(); }
+    catch (e) { setError(e instanceof Error ? e.message : "配對失敗"); }
+    finally { setAssigning(null); }
+  }
 
   const items = useMemo(() => (report?.items ?? []).filter((i) => filter === "all" || i.answer_type === filter), [report, filter]);
   if (error) return <div className="card empty">{error}</div>;
@@ -41,6 +55,8 @@ export default function ExamReport({ uuid }: { uuid: string }) {
   const counts = { all: report.items.length, mark: report.items.filter((i) => i.answer_type === "mark").length, choice: report.items.filter((i) => i.answer_type === "choice").length };
   const best = Math.max(...report.paper_list.map((p) => p.correct), 0);
   const worst = Math.min(...report.paper_list.map((p) => p.correct), best);
+  const unmatched = report.paper_list.filter((p) => !p.student_id);
+  const matched = new Set(report.paper_list.map((p) => p.student_id).filter((id): id is number => id !== null));
 
   return (
     <>
@@ -122,18 +138,39 @@ export default function ExamReport({ uuid }: { uuid: string }) {
               <h2>學生</h2>
               {scoreFilter !== null
                 ? <button type="button" className="filterchip" onClick={() => setScoreFilter(null)}>只看答對 {scoreFilter} 題 ✕</button>
-                : <span>依答對題數</span>}
+                : <span>{unmatched.length ? `${unmatched.length} 份未配對，對照紙本的題數選學生` : "依答對題數"}</span>}
             </div>
             <div className="table">
-              {[...report.paper_list].filter((p) => scoreFilter === null || p.correct === scoreFilter).sort((a, b) => b.correct - a.correct).slice(0, allStudents ? undefined : 8).map((p) => (
-                <button key={p.session_uuid} type="button" className="tr" disabled={!p.student_id} style={{ gridTemplateColumns: "minmax(0,1fr) 110px 60px", padding: "8px 10px" }} onClick={() => p.student_id && go(`/student/${p.student_id}`)}>
-                  <span>{p.student_name ?? <span className="note">未配對</span>}</span>
+              {/* Unmatched papers first, so 「配對」 from the overview lands on them.
+                  第 N 份 is scan order — the same number the phone showed. */}
+              {report.paper_list.map((p, i) => ({ ...p, position: i + 1 }))
+                .filter((p) => scoreFilter === null || p.correct === scoreFilter)
+                .sort((a, b) => Number(!!a.student_id) - Number(!!b.student_id) || b.correct - a.correct)
+                .slice(0, allStudents ? undefined : Math.max(8, unmatched.length)).map((p) => {
+                const score = (
                   <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="meter" style={{ width: 50 }}><i style={{ width: `${(p.correct / report.total) * 100}%`, background: "var(--choice)" }} /></span>{p.correct}/{report.total}</span>
-                  <span className="n note">{p.pending ? `${p.pending} 待確認` : ""}</span>
-                </button>
-              ))}
+                );
+                const pending = <span className="n note">{p.pending ? `${p.pending} 待確認` : ""}</span>;
+                return p.student_id ? (
+                  <button key={p.session_uuid} type="button" className="tr" style={{ gridTemplateColumns: "minmax(0,1fr) 110px 60px", padding: "8px 10px" }} onClick={() => go(`/student/${p.student_id}/${uuid}`)}>
+                    <span>{p.student_name}</span>{score}{pending}
+                  </button>
+                ) : (
+                  <div key={p.session_uuid} className="tr" style={{ gridTemplateColumns: "minmax(0,1fr) 110px 60px", padding: "8px 10px" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <span className="note">第 {p.position} 份</span>
+                      <select className="switch" aria-label={`第 ${p.position} 份是誰的`} value="" disabled={!roster || assigning === p.session_uuid}
+                        onChange={(e) => e.target.value && assign(p.session_uuid, Number(e.target.value))}>
+                        <option value="" disabled>{assigning === p.session_uuid ? "配對中…" : roster ? "選擇學生" : "載入名冊中…"}</option>
+                        {roster?.students.filter((s) => !matched.has(s.id)).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    </span>
+                    {score}{pending}
+                  </div>
+                );
+              })}
             </div>
-            {scoreFilter === null && report.paper_list.length > 8 && (
+            {scoreFilter === null && report.paper_list.length > Math.max(8, unmatched.length) && (
               <button type="button" className="btn soft" style={{ alignSelf: "center" }} onClick={() => setAllStudents((v) => !v)}>
                 {allStudents ? "收起" : `顯示全部 ${report.paper_list.length} 位`}
               </button>
@@ -151,7 +188,7 @@ export default function ExamReport({ uuid }: { uuid: string }) {
             <div className="title"><h2>需要關注</h2><span>比自己平常低 15% 以上</span></div>
             {report.watch.length === 0 && <span className="note">{report.previous ? "沒有學生明顯退步。" : "第一次考試，還沒有可以比較的紀錄。"}</span>}
             {report.watch.slice(0, 5).map((w) => (
-              <button key={w.student_id} type="button" className="watch" onClick={() => go(`/student/${w.student_id}`)}>
+              <button key={w.student_id} type="button" className="watch" onClick={() => go(`/student/${w.student_id}/${uuid}`)}>
                 <span className="avatar">{(w.student_name ?? "?").slice(0, 1)}</span>
                 <span><b>{w.student_name}</b><small>平常 {pct(w.usual_rate)} → 這次 {pct(w.rate)}</small></span>
                 <em>−{Math.round(w.drop * 100)}%</em>
