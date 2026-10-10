@@ -34,3 +34,7 @@ Implementer: Claude
 ## Comments
 
 2026-10-10 cloud Claude：第一版實作在 iOS 分支 `claude/project-thread-9borks`。
+
+2026-10-10 cloud Claude：CI 全綠（編譯、示範掃描與辨識自我測試）。和 Q18 讀取視窗修正（iOS #4）一起併入 `develop`（f5fb1d3），
+已上傳浮島 QAT build 148。修了一個問題：按「收起」後對照畫面會多停 0.6 秒，現在立刻收起，只有跳出時才等。
+下一步：QAT 實機照「驗證」那段試一次，沒問題再決定要不要上正式版。
