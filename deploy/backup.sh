@@ -17,11 +17,25 @@
 # forever. `derivatives/` is deliberately skipped: it is a cache, and
 # restoring it costs nothing but CPU.
 #
+# It runs from cron, which has no ssh-agent, so it cannot use a key that has a
+# passphrase. It uses a key of its own with none, and the server accepts that
+# key only through `deploy/backup-gate.sh`, which lets it run these two
+# exports and nothing else (setup in docs/ops/deploy.md). Without that, cron
+# was refused every night and nobody noticed for weeks.
+#
+# The host lives in a local file, not here: this repo is public.
+#
 #   usage: deploy/backup.sh [destination]
 #   cron:  17 3 * * *  /path/to/deploy/backup.sh >> ~/backups/backup.log 2>&1
+#   ~/.config/cramschool/backup.env:  BACKUP_HOST=user@host
 set -euo pipefail
 
-HOST="${BACKUP_HOST:-comma@100.107.235.123}"
+ENV_FILE="${BACKUP_ENV:-$HOME/.config/cramschool/backup.env}"
+# shellcheck source=/dev/null
+[ -f "$ENV_FILE" ] && . "$ENV_FILE"
+HOST="${BACKUP_HOST:?set BACKUP_HOST in $ENV_FILE}"
+KEY="${BACKUP_KEY:-$HOME/.ssh/cram_backup}"
+SSH=(ssh -o BatchMode=yes -o IdentitiesOnly=yes -i "$KEY")
 REMOTE_DIR="${BACKUP_REMOTE_DIR:-CramSchool_Backend}"
 DEST="${1:-${BACKUP_DEST:-$HOME/backups/cramschool}}"
 KEEP_DAYS="${BACKUP_KEEP_DAYS:-30}"
@@ -31,9 +45,12 @@ mkdir -p "$DEST/db" "$DEST/blobs"
 
 echo "==> 備份資料庫"
 DUMP="$DEST/db/cramschool-$STAMP.sql.gz"
+# A failed run must not leave a file behind; a pile of empty .partial dumps is
+# what the broken cron looked like from the outside.
+trap 'rm -f "$DUMP.partial"' EXIT
 # --clean --if-exists so the dump can be replayed into a database that already
 # has a schema, which is what a restore test actually looks like.
-ssh -o BatchMode=yes "$HOST" \
+"${SSH[@]}" "$HOST" \
     "cd $REMOTE_DIR && docker compose exec -T db pg_dump -U cram --clean --if-exists cramschool" \
     | gzip > "$DUMP.partial"
 # Rename only after the pipe closed cleanly. A truncated dump that looks like
@@ -52,7 +69,7 @@ echo "==> 備份影像"
 STAGING="$DEST/.blobs.incoming"
 rm -rf "$STAGING"
 mkdir -p "$STAGING"
-ssh -o BatchMode=yes "$HOST" \
+"${SSH[@]}" "$HOST" \
     "cd $REMOTE_DIR && docker compose exec -T api tar cf - -C /data blobs" \
     | tar xf - -C "$STAGING"
 # `--delete` so a blob removed upstream is removed here too; the store is

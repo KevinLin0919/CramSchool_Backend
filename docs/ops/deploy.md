@@ -40,4 +40,24 @@ docker exec cram_api cramctl tokens revoke <token id>
 
 ## 備份
 
-`deploy/backup.sh`。自動排程目前沒有成功執行過（狀態見 `docs/progress.md`），只有手動執行的備份是完整的。
+`deploy/backup.sh` 從開發機用 cron 每天凌晨把資料庫和影像拉回來。cron 碰不到 ssh-agent，所以用一把**沒有密碼、
+只給備份用**的金鑰；主機只讓這把金鑰執行 `deploy/backup-gate.sh` 列出的兩個匯出指令，其他一律拒絕。
+
+開發機（每台要跑備份的機器各做一次）：
+
+```bash
+ssh-keygen -t ed25519 -N "" -C cramschool-backup -f ~/.ssh/cram_backup
+mkdir -p ~/.config/cramschool
+echo 'BACKUP_HOST=<使用者>@<主機>' > ~/.config/cramschool/backup.env   # 不進 git
+```
+
+主機（要使用者同意）：
+
+```bash
+mkdir -p ~/bin && cp CramSchool_Backend/deploy/backup-gate.sh ~/bin/cram-backup-gate
+# 加到 ~/.ssh/authorized_keys，一行：
+restrict,from="100.64.0.0/10",command="bin/cram-backup-gate" <cram_backup.pub 的內容>
+```
+
+`from` 限定只能從 Tailscale 內網連進來。改了 `backup.sh` 送出的指令，就要同步改 `backup-gate.sh` 並重新複製到主機。
+裝好後手動跑一次 `deploy/backup.sh`，再照 `docs/design.md` 的方式做一次還原測試。

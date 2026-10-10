@@ -39,8 +39,7 @@
 - **主機離線（2026-10-09 晚起）**：正式與 QAT 後端都連不上，App 仍可離線批改，但同步模板、上傳結果、網頁版都要等主機回來。
   要有人到現場開機並確認 Tailscale 與 Funnel；之後在 BIOS 設定斷電後自動開機、關掉睡眠，並查是不是 Tailscale 金鑰過期。
 - 後端 PR #9（Dependabot）：一次升 7 個套件，其中 SQLAlchemy 2.0 → 2.1 是小版本跳升。建議決賽（10/16）後再併，併之前跑完測試並先上 QAT。
-- 自動備份排程從沒成功過（排程環境拿不到 ssh 金鑰），目前只有手動備份。
+- 自動備份排程從沒成功過：ssh 金鑰有密碼，cron 用不了。已改成備份專用金鑰＋主機端限制指令（`docs/ops/deploy.md`），開發機這端做好了；**主機開機後**要登記金鑰、手動跑一次補 10/4 之後的空窗、做還原測試。最新的完整備份是 10/4 手動那份。長期考慮改由主機上傳到補習班自己的雲端。
 - 比賽決賽（10/16）後把兩個 repo 改成 private，再把帳號、主機等營運資訊搬進 repo。
 - CI 的「未簽章 .ipa」工作已經用不到（改用 TestFlight），可以拿掉以節省 macOS 機器時數。
-- iOS 多出來的分支可以刪：`scan-q18-read-window`（空的）、`scan-q18-window`、`client-red-pen-review`、`claude/project-thread-*`（都已併入 `develop`）。
 - iOS CI 不要手動觸發：手動觸發會上傳 TestFlight，而且不在 `develop` 時簽的是正式版。要跑 CI 就推一個**新的** commit 到 `scan-*`／`client-*`（推一個 repo 裡已經有的 commit 會被 `paths-ignore` 跳過）。
